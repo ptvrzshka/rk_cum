@@ -7,9 +7,9 @@
 #include <condition_variable>
 #include <thread>
 
-// #include <opencv2/core/core.hpp>
-// #include <opencv2/highgui/highgui.hpp>
-// #include <opencv2/imgproc.hpp>
+#include <opencv2/core/core.hpp>
+#include <opencv2/highgui/highgui.hpp>
+#include <opencv2/imgproc.hpp>
 
 
 std::mutex mtx;
@@ -50,26 +50,26 @@ int main()
 
 		std::cout << frame[10000] << " " << frameOut[10000] << std::endl;
 
-		// cv::Mat image_cv(HEIGHT, WIDTH, CV_16UC1, frame);
-		// cv::Mat image_cv_out(HEIGHT, WIDTH, CV_16UC1, frameOut);
+		cv::Mat image_cv(HEIGHT, WIDTH, CV_16UC1, frame);
+		cv::Mat image_cv_out(HEIGHT, WIDTH, CV_16UC1, frameOut);
 
-		// imshow("Original", image_cv);
-		// imshow("Processed", image_cv_out);
+		imshow("Original", image_cv);
+		imshow("Processed", image_cv_out);
 
-		// key = cv::waitKey(1);
-		// if (key == 99) {
-		// 	int packet_data[6] = { 0x05, 0x5C, 0xCF, 0x00, 0x00, 0x00 };
-		// 	SendData(packet_data, 6); // Команда на калибровку 
-		// }
-		// if (key == 98) {
-		// 	int packet_data[6] = { 0x05, 0x5C, 0x00, 0x00, 0x0E, 0x80 };
-		// 	SendData(packet_data, 6); // Команда на Прямой проход 
-		// }
-		// if (key == 97) {
-		// 	SendFrequence(25);
-		// 	SendIntTime(25000);
-		// }
-		// else if (key == 27) break;
+		key = cv::waitKey(1);
+		if (key == 99) {
+			int packet_data[6] = { 0x05, 0x5C, 0xCF, 0x00, 0x00, 0x00 };
+			SendData(packet_data, 6); // Команда на калибровку 
+		}
+		if (key == 98) {
+			int packet_data[6] = { 0x05, 0x5C, 0x00, 0x00, 0x0E, 0x80 };
+			SendData(packet_data, 6); // Команда на Прямой проход 
+		}
+		if (key == 97) {
+			SendFrequence(25);
+			SendIntTime(25000);
+		}
+		else if (key == 27) break;
 	}
 
 	stop_flag = true;
