@@ -1,6 +1,6 @@
 #include <iostream>
 
-#include "../OpenCL/opencl.c"
+#include "../OpenCL/opencl.cpp"
 #include "../Ethernet/ethernet.cpp"
 
 #include <mutex>
@@ -41,14 +41,23 @@ int main()
     std::cout << "Start reading" << std::endl;
 
 	int key = 0;
+	int fs_cnt = 0;
 	while (true)
 	{
 		std::unique_lock<std::mutex> lock(mtx);
 		cond.wait(lock);
 
-		process_image(frame, frameOut);
+		if (fs_cnt != 0) 
+		{
+			if (fs_cnt == 1)
+				calc_fs(frame, fs_cnt, true);
+			calc_fs(frame, fs_cnt, false);
+			fs_cnt += 1;
+			if (fs_cnt > 16)
+				fs_cnt = 0;
+		}
 
-		std::cout << frame[10000] << " " << frameOut[10000] << std::endl;
+		process_image(frame, frameOut);
 
 		cv::Mat image_cv(HEIGHT, WIDTH, CV_16UC1, frame);
 		cv::Mat image_cv_out(HEIGHT, WIDTH, CV_16UC1, frameOut);
@@ -68,6 +77,9 @@ int main()
 		if (key == 97) {
 			SendFrequence(25);
 			SendIntTime(25000);
+		}
+		if (key == 100) {
+			fs_cnt = 1;
 		}
 		else if (key == 27) break;
 	}
