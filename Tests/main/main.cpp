@@ -12,22 +12,46 @@
 #include <opencv2/imgproc.hpp>
 
 
-std::mutex mtx;
-std::condition_variable cond;
+std::mutex procMtx;
+std::condition_variable procCond;
+std::mutex visMtx;
+std::condition_variable visCond;
 bool stop_flag = false;
 
 unsigned short* frame = nullptr;
 unsigned short* frameOut = new unsigned short[WIDTH * HEIGHT];
+
+std::chrono::time_point<std::chrono::system_clock> startTime;
+std::chrono::time_point<std::chrono::system_clock> endTime;
+int framesCnt = 0;
+
+void CalcFps() 
+{
+	endTime = std::chrono::system_clock::now();
+	std::cout << "Fps: " << (float)framesCnt / std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count() * 1000.0 << std::endl;
+	framesCnt = 0;
+	startTime = std::chrono::system_clock::now();
+}
 
 void ReaderLoop()
 {
 	while (!stop_flag)
 	{
 		frame = GetFramebuffer(); 
-		cond.notify_one();
+		procCond.notify_one();
 	}
 }
 
+void ProcessLoop() 
+{
+	while (!stop_flag)
+	{
+		std::unique_lock<std::mutex> lock(procMtx);
+		procCond.wait(lock);
+		process_image(frame, frameOut);
+		visCond.notify_one();
+	}
+}
 
 int main() 
 {
@@ -35,6 +59,7 @@ int main()
 	InitializeCamera(new int[4] { 192, 168, 0, 15 }, 50000);
 
     std::thread readerThread(&ReaderLoop);
+	std::thread processorThread(&ProcessLoop);
 
 	init_image_processor(frameOut);
 
@@ -42,10 +67,11 @@ int main()
 
 	int key = 0;
 	int fs_cnt = 0;
+	startTime = std::chrono::system_clock::now();
 	while (true)
 	{
-		std::unique_lock<std::mutex> lock(mtx);
-		cond.wait(lock);
+		std::unique_lock<std::mutex> lock(visMtx);
+		visCond.wait(lock);
 
 		if (fs_cnt != 0) 
 		{
@@ -57,13 +83,17 @@ int main()
 				fs_cnt = 0;
 		}
 
-		process_image(frame, frameOut);
+		// process_image(frame, frameOut);
 
 		cv::Mat image_cv(HEIGHT, WIDTH, CV_16UC1, frame);
 		cv::Mat image_cv_out(HEIGHT, WIDTH, CV_16UC1, frameOut);
 
 		imshow("Original", image_cv);
 		imshow("Processed", image_cv_out);
+
+		framesCnt += 1;
+		if (framesCnt == 100)
+			CalcFps();
 
 		key = cv::waitKey(1);
 		if (key == 99) {

@@ -1,6 +1,8 @@
 #include <stdio.h>
 #include <CL/cl.h>
 
+#include <math.h>
+
 #define MAX_SOURCE_SIZE (1048576) 
 
 
@@ -13,6 +15,8 @@ static cl_command_queue command_queue;
 static cl_kernel fs_kernel = NULL;
 static cl_kernel base_proc_kernel = NULL;
 static cl_kernel freq_sep_kernel = NULL;
+static cl_kernel local_contrast_kernel = NULL;
+static cl_kernel freq_sum_kernel = NULL;
 // static cl_kernel mean_kernel = NULL;
 
 static cl_mem memobj_in = NULL;
@@ -27,6 +31,7 @@ static cl_mem memobj_statsCurrent = NULL;
 static cl_mem memobj_statsContrast = NULL;
 static cl_mem memobj_rangeCnt = NULL;
 static cl_mem memobj_lowFreq = NULL;
+static cl_mem memobj_lowFreqProcessed = NULL;
 static cl_mem memobj_highFreq = NULL;
 
 // static cl_mem memobj_mean = NULL;
@@ -37,6 +42,9 @@ static int defectsLenth = 0;
 
 static cl_int bytesDivider = 8;
 static cl_float contrast = 1.0;
+static cl_float localContrastLimit = 8.0;
+static cl_float localContrastMultiplecative = 4.0;
+static cl_int localContrastDim = 21;
 
 static float* K = new float[memLenth];
 static unsigned short* Fs = new unsigned short[memLenth];
@@ -48,6 +56,7 @@ static int* statsContrast = new int[2] {0 , 0};
 static int* rangeCnt = new int[2] {0 , 0};
 
 static int* lowFreq = new int[memLenth];
+static int* lowFreqProcessed = new int[memLenth];
 static int* highFreq = new int[memLenth];
 
 
@@ -158,7 +167,8 @@ void create_buffers(cl_context context, cl_command_queue command_queue, int memL
     memobj_statsContrast = clCreateBuffer(context, CL_MEM_READ_WRITE, 2 * sizeof(int), NULL, &status);
     memobj_rangeCnt = clCreateBuffer(context, CL_MEM_READ_WRITE, 2 * sizeof(int), NULL, &status);
 
-    memobj_lowFreq= clCreateBuffer(context, CL_MEM_READ_WRITE, memLenth * sizeof(int), NULL, &status);
+    memobj_lowFreq = clCreateBuffer(context, CL_MEM_READ_WRITE, memLenth * sizeof(int), NULL, &status);
+    memobj_lowFreqProcessed = clCreateBuffer(context, CL_MEM_READ_WRITE, memLenth * sizeof(int), NULL, &status);
     memobj_highFreq = clCreateBuffer(context, CL_MEM_READ_WRITE, memLenth * sizeof(int), NULL, &status);
 
     // memobj_mean = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(int), NULL, &status);
@@ -181,6 +191,8 @@ void init_image_processor(unsigned short *membuffer)
     fs_kernel = create_kernel(program, "calc_fs");  
     base_proc_kernel = create_kernel(program, "calibration_and_agc");  
     freq_sep_kernel = create_kernel(program, "separate_frequences");  
+    local_contrast_kernel = create_kernel(program, "local_contrast"); 
+    freq_sum_kernel = create_kernel(program, "summary_frequences");   
     //mean_kernel = create_kernel(program, "mean"); 
 
     create_buffers(context, command_queue, memLenth);
@@ -205,8 +217,20 @@ void init_image_processor(unsigned short *membuffer)
     status = clSetKernelArg(base_proc_kernel, 11, sizeof(cl_mem), (void *)&memobj_out);
 
     status = clSetKernelArg(freq_sep_kernel, 0, sizeof(cl_mem), (void *)&memobj_in);
-    status = clSetKernelArg(freq_sep_kernel, 1, sizeof(cl_mem), (void *)&memobj_lowFreq);
-    status = clSetKernelArg(freq_sep_kernel, 2, sizeof(cl_mem), (void *)&memobj_highFreq);
+    status = clSetKernelArg(freq_sep_kernel, 1, sizeof(cl_mem), (void *)&memobj_statsContrast);
+    status = clSetKernelArg(freq_sep_kernel, 2, sizeof(cl_mem), (void *)&memobj_lowFreq);
+    status = clSetKernelArg(freq_sep_kernel, 3, sizeof(cl_mem), (void *)&memobj_highFreq);
+
+    status = clSetKernelArg(local_contrast_kernel, 0, sizeof(cl_mem), (void *)&memobj_lowFreq);
+    status = clSetKernelArg(local_contrast_kernel, 1, sizeof(cl_mem), (void *)&memobj_statsContrast);
+    status = clSetKernelArg(local_contrast_kernel, 2, sizeof(cl_float), &localContrastLimit);
+    status = clSetKernelArg(local_contrast_kernel, 3, sizeof(cl_float), &localContrastMultiplecative);
+    status = clSetKernelArg(local_contrast_kernel, 4, sizeof(cl_int), &localContrastDim);
+    status = clSetKernelArg(local_contrast_kernel, 5, sizeof(cl_mem), (void *)&memobj_lowFreqProcessed);
+
+    status = clSetKernelArg(freq_sum_kernel, 0, sizeof(cl_mem), (void *)&memobj_lowFreqProcessed);
+    status = clSetKernelArg(freq_sum_kernel, 1, sizeof(cl_mem), (void *)&memobj_highFreq);
+    status = clSetKernelArg(freq_sum_kernel, 2, sizeof(cl_mem), (void *)&memobj_out);
 
     // status = clSetKernelArg(mean_kernel, 0, sizeof(cl_mem), (void *)&memobj_in);
     // status = clSetKernelArg(mean_kernel, 1, sizeof(cl_mem), (void *)&memobj_mean);
@@ -217,17 +241,45 @@ void init_image_processor(unsigned short *membuffer)
     load_defects_data();
 }
 
+void exec_summury_frequences_kernel(int* lowFreq, int* highFreq, unsigned short* outputImage) 
+{
+    status = clEnqueueWriteBuffer(command_queue, memobj_lowFreq, CL_TRUE, 0, memLenth * sizeof(int), lowFreq, 0, NULL, NULL);
+    status = clEnqueueWriteBuffer(command_queue, memobj_highFreq, CL_TRUE, 0, 2 * sizeof(int), highFreq, 0, NULL, NULL);
+
+    status = clEnqueueNDRangeKernel(command_queue, freq_sum_kernel, 1, NULL, global_work_size, NULL, 0, NULL, NULL);
+
+    status = clEnqueueReadBuffer(command_queue, memobj_out, CL_TRUE, 0, memLenth * sizeof(unsigned short), outputImage, 0, NULL, NULL);
+
+}
+
+void exec_local_contrast_kernel(int* inputImage, int* outputImage) 
+{
+    status = clEnqueueWriteBuffer(command_queue, memobj_lowFreq, CL_TRUE, 0, memLenth * sizeof(int), inputImage, 0, NULL, NULL);
+    status = clEnqueueWriteBuffer(command_queue, memobj_statsContrast, CL_TRUE, 0, 2 * sizeof(int), statsContrast, 0, NULL, NULL);
+
+    status = clEnqueueNDRangeKernel(command_queue, local_contrast_kernel, 1, NULL, global_work_size, NULL, 0, NULL, NULL);
+
+    status = clEnqueueReadBuffer(command_queue, memobj_lowFreqProcessed, CL_TRUE, 0, memLenth * sizeof(int), outputImage, 0, NULL, NULL);
+
+    statsContrast[0] = 0; statsContrast[1] = 0;
+}
+
 void exec_separate_frequences(unsigned short* inputImage, int* lowFreq, int* highFreq) 
 {
     status = clEnqueueWriteBuffer(command_queue, memobj_in, CL_TRUE, 0, memLenth * sizeof(unsigned short), inputImage, 0, NULL, NULL);
     status = clEnqueueWriteBuffer(command_queue, memobj_lowFreq, CL_TRUE, 0, memLenth * sizeof(int), lowFreq, 0, NULL, NULL);
     status = clEnqueueWriteBuffer(command_queue, memobj_highFreq, CL_TRUE, 0, memLenth * sizeof(int), highFreq, 0, NULL, NULL);
+    status = clEnqueueWriteBuffer(command_queue, memobj_statsContrast, CL_TRUE, 0, 2 * sizeof(int), statsContrast, 0, NULL, NULL);
 
     status = clEnqueueNDRangeKernel(command_queue, freq_sep_kernel, 1, NULL, global_work_size, NULL, 0, NULL, NULL);
 
     status = clEnqueueReadBuffer(command_queue, memobj_lowFreq, CL_TRUE, 0, memLenth * sizeof(int), lowFreq, 0, NULL, NULL);
     status = clEnqueueReadBuffer(command_queue, memobj_highFreq, CL_TRUE, 0, memLenth * sizeof(int), highFreq, 0, NULL, NULL);
+    status = clEnqueueReadBuffer(command_queue, memobj_statsContrast, CL_TRUE, 0, 2 * sizeof(int), statsContrast, 0, NULL, NULL);
 
+    statsContrast[1] = std::sqrt(statsContrast[1]);
+    // printf("Mean: %d ", statsContrast[0]);
+    // printf("Std: %d\n", statsContrast[1]);
 }
 
 static const float p_agc_black = 0.015;
@@ -262,8 +314,9 @@ void exec_firts_kernel(unsigned short* inputImage, unsigned short* outputImage)
     // printf("Mean: %d ", statsCurrent[0] / memLenth * bytesDivider);
     // printf("Contrast Mean: %d\n", statsContrast[0] / memLenth * bytesDivider);
     statsPrev[0] = statsCurrent[0] / memLenth * bytesDivider;
+    statsContrast[0] = statsContrast[0] / memLenth * bytesDivider;
     statsCurrent[0] = 0;
-    statsContrast[0] = 0;
+    // statsContrast[0] = 0;
     rangeCnt[0] = 0; rangeCnt[1] = 0;
 }
 
@@ -306,7 +359,8 @@ void process_image(unsigned short* inputImage, unsigned short* outputImage)
 
     exec_firts_kernel(inputImage, outputImage);
     exec_separate_frequences(outputImage, lowFreq, highFreq);
-    //memcpy(outputImage, lowFreq, memLenth * sizeof(unsigned short));
+    exec_local_contrast_kernel(lowFreq, lowFreqProcessed);
+    exec_summury_frequences_kernel(lowFreqProcessed, highFreq, outputImage);
     for (int i = 0; i < memLenth; ++i)
-        outputImage[i] = lowFreq[i];
+        outputImage[i] = lowFreqProcessed[i];
 }
