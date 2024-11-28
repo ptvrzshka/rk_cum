@@ -12,8 +12,9 @@
 
 
 #include <iostream>
-#include <algorithm>
 #include <cstring>
+#include <unistd.h>
+#include <algorithm>
 
 #if PLATFORM == PLATFORM_WINDOWS
 
@@ -39,7 +40,7 @@ static sockaddr_in camera;
 static const int WIDTH = 640;
 static const int HEIGHT = 512;
 
-static int rowSize = sizeof(unsigned short) * (WIDTH + 2);
+static int rowSize = sizeof(unsigned short) * 642;
 #if PLATFORM == PLATFORM_WINDOWS
 static int cameraLength;
 #else

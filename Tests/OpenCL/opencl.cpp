@@ -2,6 +2,11 @@
 #include <CL/cl.h>
 
 #include <math.h>
+#include <cstring>
+
+#include <opencv2/opencv.hpp>
+#include <opencv2/imgproc.hpp>
+#include <opencv2/highgui.hpp>
 
 #define MAX_SOURCE_SIZE (1048576) 
 
@@ -37,14 +42,16 @@ static cl_mem memobj_highFreq = NULL;
 // static cl_mem memobj_mean = NULL;
 
 static const int memLenth = 640 * 512;
-static size_t global_work_size[1] = { memLenth};
+static size_t global_work_size[1] = { memLenth };
+static size_t global_work_size_1[1] = { 640 * 512 };
+static size_t local_work_size_1[1] = { 32 * 32 };
 static int defectsLenth = 0;
 
 static cl_int bytesDivider = 8;
 static cl_float contrast = 1.0;
-static cl_float localContrastLimit = 8.0;
-static cl_float localContrastMultiplecative = 4.0;
-static cl_int localContrastDim = 21;
+static cl_float localContrastLimit = 10.0;
+static cl_float localContrastMultiplecative = 2.0;
+static cl_int localContrastDim = 37; // 35
 
 static float* K = new float[memLenth];
 static unsigned short* Fs = new unsigned short[memLenth];
@@ -257,7 +264,7 @@ void exec_local_contrast_kernel(int* inputImage, int* outputImage)
     status = clEnqueueWriteBuffer(command_queue, memobj_lowFreq, CL_TRUE, 0, memLenth * sizeof(int), inputImage, 0, NULL, NULL);
     status = clEnqueueWriteBuffer(command_queue, memobj_statsContrast, CL_TRUE, 0, 2 * sizeof(int), statsContrast, 0, NULL, NULL);
 
-    status = clEnqueueNDRangeKernel(command_queue, local_contrast_kernel, 1, NULL, global_work_size, NULL, 0, NULL, NULL);
+    status = clEnqueueNDRangeKernel(command_queue, local_contrast_kernel, 1, NULL, global_work_size_1, NULL, 0, NULL, NULL);
 
     status = clEnqueueReadBuffer(command_queue, memobj_lowFreqProcessed, CL_TRUE, 0, memLenth * sizeof(int), outputImage, 0, NULL, NULL);
 
@@ -338,6 +345,7 @@ void calc_fs(unsigned short* inputImage, int iter, bool start)
     status = clEnqueueReadBuffer(command_queue, memobj_fs, CL_TRUE, 0, memLenth * sizeof(unsigned short), Fs, 0, NULL, NULL);
 }
 
+cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE();
 void process_image(unsigned short* inputImage, unsigned short* outputImage) 
 {
     // int stats[2] = { 0, 0 };
@@ -360,7 +368,16 @@ void process_image(unsigned short* inputImage, unsigned short* outputImage)
     exec_firts_kernel(inputImage, outputImage);
     exec_separate_frequences(outputImage, lowFreq, highFreq);
     exec_local_contrast_kernel(lowFreq, lowFreqProcessed);
-    exec_summury_frequences_kernel(lowFreqProcessed, highFreq, outputImage);
-    for (int i = 0; i < memLenth; ++i)
-        outputImage[i] = lowFreqProcessed[i];
+    exec_summury_frequences_kernel(lowFreq, highFreq, outputImage);
+
+    // char lowFreq8[640 * 512];
+    // for (int i = 0; i < memLenth; ++i)
+    //     lowFreq8[i] = (char)(lowFreq[i] / 256);
+    // cv::Mat enhancedImage(cv::Size(640, 512), CV_8U);
+    // cv::Mat image(cv::Size(640, 512), CV_8U, lowFreq8);
+    // clahe->setClipLimit(8.0); // Параметр ограничения контраста (по умолчанию 40.0)
+    // clahe->setTilesGridSize(cv::Size(32, 32));
+    // clahe->apply(image, enhancedImage);
+    // for (int i = 0; i < memLenth; ++i)
+    //     outputImage[i] = enhancedImage.data[i] * 256;
 }

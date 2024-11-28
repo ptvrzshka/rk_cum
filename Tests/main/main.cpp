@@ -53,8 +53,9 @@ void ProcessLoop()
 	}
 }
 
-int main() 
+int main(int argc, char *argv[]) 
 {
+
     InitializeSocket(new int[4] { 192, 168, 0, 1 }, 50016);
 	InitializeCamera(new int[4] { 192, 168, 0, 15 }, 50000);
 
@@ -85,15 +86,15 @@ int main()
 
 		// process_image(frame, frameOut);
 
+		framesCnt += 1;
+		if (framesCnt == 30)
+			CalcFps();
+
 		cv::Mat image_cv(HEIGHT, WIDTH, CV_16UC1, frame);
 		cv::Mat image_cv_out(HEIGHT, WIDTH, CV_16UC1, frameOut);
 
 		imshow("Original", image_cv);
 		imshow("Processed", image_cv_out);
-
-		framesCnt += 1;
-		if (framesCnt == 100)
-			CalcFps();
 
 		key = cv::waitKey(1);
 		if (key == 99) {

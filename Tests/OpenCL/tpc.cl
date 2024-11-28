@@ -53,9 +53,7 @@ __kernel void calc_fs(__global unsigned short* inputImage, __global unsigned sho
 {
     int index = get_global_id(0);
     int value = (outputImage[index] * (div - 1) + inputImage[index]) / div;
-    if (value > 65535)
-        value = 65535;
-    outputImage[index] = value;
+    outputImage[index] = convert_ushort_sat(value);
 }
 
 __kernel void calibration_and_agc(__global unsigned short* inputImage, 
@@ -147,55 +145,83 @@ __kernel void local_contrast(__global int* inputImage,
     int x = index / 640;
     int y = index % 640;  
 
-    int x_max = 0; int x_min = 65535;
-    int N_black = 0; int N_white = 0;
+    float x_max = 0.0; float x_min = 65535.0;
+    int N_black = 0; int N_white = 0; float N = 0;
     float meanFrame = 0.0;
+    float meanFrame1 = 0.0;
+    // int dim2 = (dim / 2 + 1) * (dim / 2 + 1); 
     int dim2 = dim * dim; 
     float mean = stats[0];
     float std = stats[1];
-    for (int i = -(dim / 2); i < dim / 2 + 1; ++i)
+    int cnt = 0;
+    for (int l = 0; l < dim2; ++l) 
     {
-        for (int j = -(dim / 2); j < dim / 2 + 1; ++j) 
-        {
-            int index_x = abs(x + i);
-            int index_y = abs(y + j);
-            if (x + i > 511)
-                index_x = x - i;
-            if (y + j > 640)
-                index_y = y - j;
-            int elem = inputImage[index_x * 640 + index_y];
-            meanFrame += elem / dim2;
-            if (elem > x_max)
-                x_max = elem;
-            if (elem < x_min)
-                x_min = elem;
-            if (mean - elem > 2.5 * std)
-                N_black += 1;
-            if (elem - mean < - 2.5 * std)
-                N_white += 1;
-        }
-    } 
-    float k = meanFrame * multiplecative / ((x_max - x_min) + 0.0001) * (1.0 - (float)(N_white + N_black) / dim2);
+        int i = l / dim - dim / 2;
+        int j = l % dim - dim / 2;
+        int index_x = abs(x + i);
+        int index_y = abs(y + j);
+        if (x + i > 511)
+            index_x = x - i;
+        if (y + j > 640)
+            index_y = y - j;
+        float k_interp = (1.0 - (pown((float)i, 2) + pown((float)j, 2)) / (float)(dim2 / 2));
+        // k_interp = 1;
+        // k_interp = pown(k_interp, 2);
+        k_interp = rootn(k_interp, 4);
+        // printf("%f %f\n", k_interp, pown(k_interp, 4));
+        float elem = (float)inputImage[index_x * 640 + index_y];
+        meanFrame1 += elem / dim2;
+        if (elem * k_interp > x_max)
+            x_max = elem * k_interp;
+        if (elem * k_interp < x_min)
+            x_min = elem * k_interp;
+        if (fabs(elem - mean) * k_interp > 2.5 * std) 
+            N += 1;
+        // else 
+        // {
+        //     if (elem * k_interp > x_max)
+        //         x_max = elem * k_interp;
+        //     if (elem * k_interp < x_min)
+        //         x_min = elem * k_interp;
+        // }
+        // if (elem > x_max)
+        //     x_max = elem;
+        // if (elem < x_min)
+        //     x_min = elem;
+        // if (mean - elem >= 2.0 * std) 
+        // {
+        //     N_black += 1;
+        // }
+        // if (elem - mean <= - 2.0 * std) 
+        // {
+        //     N_white += 1;     
+        // }
+        // else 
+        // {
+        //     cnt += 1;
+        //     meanFrame += elem; 
+        //     if (elem > x_max)
+        //         x_max = elem;
+        //     if (elem < x_min)
+        //         x_min = elem;
+        // }
+    }
+    // meanFrame = meanFrame / cnt;
+    float k = 65535.0 / (x_max - x_min) * multiplecative * (1 - (fabs(mean - meanFrame1) / mean)) * pown((1.0 - N / dim2), 4);
+    // printf("%f\n", pown((1.0 - N / dim2), 2));
     if (k > limit)
         k = limit;
-    if (k <= 0)
-        k = 0.0;
-    int contrastValue = (inputImage[index] - meanFrame) * k + meanFrame;
-    // Temp
-    if (contrastValue < 0) 
-        contrastValue = 0;
-    if (contrastValue > 65535) 
-        contrastValue = 65535;
-    outputImage[index] = contrastValue;
+    if (k <= 1.0)
+        k = 1.0;
+    // float b = meanFrame * sqrt(1.0 + (float)mean / meanFrame);
+    // float b = mean * sqrt(1.0 + fabs(meanFrame - mean + 1) / mean);
+    int contrastValue = (inputImage[index] - meanFrame1) * k + meanFrame1;
+    outputImage[index] = convert_ushort_sat(contrastValue);
 }
  
 __kernel void summary_frequences(__global int* lowFreqImage, __global int* highFreqImage, __global unsigned short* outputImage) 
 {
     int index = get_global_id(0);  
-    int value = (lowFreqImage[index] + highFreqImage[index]) / 2;
-    if (value < 0) 
-        value = 0;
-    if (value > 65535) 
-        value = 65535;
-    outputImage[index] = value;
+    int value = (float)lowFreqImage[index] + (float)highFreqImage[index] * 4;
+    outputImage[index] = convert_ushort_sat(value);
 }
