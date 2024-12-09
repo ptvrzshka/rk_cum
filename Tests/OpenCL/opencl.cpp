@@ -419,6 +419,6 @@ void process_image(unsigned short* inputImage, unsigned short* outputImage)
     {
         // if (lowFreqProcessed[i] > 65535)
         //     std::cout << lowFreqProcessed[i] << std::endl;
-        outputImage[i] = (unsigned short)(lcStdsNew[i]);
+        outputImage[i] = (unsigned short)(lowFreqProcessed[i]);
     }
 }
