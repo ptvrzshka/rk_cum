@@ -71,9 +71,7 @@ static int* lowFreq = new int[memLenth];
 static int* lowFreqProcessed = new int[memLenth];
 static int* highFreq = new int[memLenth];
 
-// static float* lcMeansPrev = new float[memLenth];
 static float* lcMeansNew = new float[memLenth];
-// static float* lcStdsPrev = new float[memLenth];
 static float* lcStdsNew = new float[memLenth];
 
 
@@ -250,7 +248,7 @@ void init_image_processor(unsigned short *membuffer)
     status = clSetKernelArg(local_contrast_kernel, 4, sizeof(cl_mem), (void *)&memobj_lcStdsNew);
     status = clSetKernelArg(local_contrast_kernel, 5, sizeof(cl_float), &localContrastLimit);
     status = clSetKernelArg(local_contrast_kernel, 6, sizeof(cl_float), &localContrastMultiplecative);
-    status = clSetKernelArg(local_contrast_kernel, 9, sizeof(cl_mem), (void *)&memobj_lowFreqProcessed);
+    status = clSetKernelArg(local_contrast_kernel, 7, sizeof(cl_mem), (void *)&memobj_lowFreqProcessed);
 
     status = clSetKernelArg(freq_sum_kernel, 0, sizeof(cl_mem), (void *)&memobj_lowFreqProcessed);
     status = clSetKernelArg(freq_sum_kernel, 1, sizeof(cl_mem), (void *)&memobj_highFreq);
@@ -287,30 +285,17 @@ void exec_summury_frequences_kernel(int* lowFreq, int* highFreq, unsigned short*
     status = clEnqueueReadBuffer(command_queue, memobj_out, CL_TRUE, 0, memLenth * sizeof(unsigned short), outputImage, 0, NULL, NULL);
 }
 
-static float stdMin = 65535.0; static float stdMax = 0.0;
 void exec_local_contrast_kernel(int* inputImage, int* outputImage) 
 {
     status = clEnqueueWriteBuffer(command_queue, memobj_lowFreq, CL_TRUE, 0, memLenth * sizeof(int), inputImage, 0, NULL, NULL);
     status = clEnqueueWriteBuffer(command_queue, memobj_lcMeansPrev, CL_TRUE, 0, memLenth * sizeof(float), lcMeansNew, 0, NULL, NULL);
     status = clEnqueueWriteBuffer(command_queue, memobj_lcStdsPrev, CL_TRUE, 0, memLenth * sizeof(float), lcStdsNew, 0, NULL, NULL);
 
-    status = clSetKernelArg(local_contrast_kernel, 7, sizeof(cl_float), &stdMin);
-    status = clSetKernelArg(local_contrast_kernel, 8, sizeof(cl_float), &stdMax);
     status = clEnqueueNDRangeKernel(command_queue, local_contrast_kernel, 1, NULL, global_work_size_1, NULL, 0, NULL, NULL);
 
     status = clEnqueueReadBuffer(command_queue, memobj_lowFreqProcessed, CL_TRUE, 0, memLenth * sizeof(int), outputImage, 0, NULL, NULL);
     status = clEnqueueReadBuffer(command_queue, memobj_lcMeansNew, CL_TRUE, 0, memLenth * sizeof(float), lcMeansNew, 0, NULL, NULL);
     status = clEnqueueReadBuffer(command_queue, memobj_lcStdsNew, CL_TRUE, 0, memLenth * sizeof(float), lcStdsNew, 0, NULL, NULL);
-
-    stdMin = 65535.0; stdMax = 0.0;
-    for (int i = 0; i < memLenth; ++i) 
-    {
-        float std = lcStdsNew[i]; 
-        if (std > stdMax)
-            stdMax = std;
-        if (std < stdMin)
-            stdMin = std;
-    }
 
     statsContrast[0] = 0; statsContrast[1] = 0;
 }
