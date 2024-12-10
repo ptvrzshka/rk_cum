@@ -152,10 +152,10 @@ __kernel void local_contrast(__global int* inputImage,
     float meanFrameExpected = 0.0;
     int dim = 31; int dim_max = dim; int dim_min = 1;
     int dim2 = dim * dim; 
-    // int dim_expected = round((65535.0 - stdsPrev[index]) / 65535.0  * (dim_max - dim_min) + dim_min);
-    float a = (-dim_max + dim_min) / pown(65535.0, 4);
-    float c = dim_max;
-    int dim_expected = round(a * pown(stdsPrev[index], 4) + dim_max);
+    int dim_expected = round((65535.0 - stdsPrev[index]) / 65535.0  * (dim_max - dim_min) + dim_min);
+    //float a = (-dim_max + dim_min) / pown(65535.0, 4);
+    //float c = dim_max;
+    //int dim_expected = round(a * pown(stdsPrev[index], 4) + dim_max);
     dim_expected = dim_expected + (dim_expected % 2 - 1);
     int index_left = - dim_expected / 2;
     int index_right = dim_expected / 2;
@@ -205,6 +205,6 @@ __kernel void local_contrast(__global int* inputImage,
 __kernel void summary_frequences(__global int* lowFreqImage, __global int* highFreqImage, __global unsigned short* outputImage) 
 {
     int index = get_global_id(0);  
-    int value = (float)lowFreqImage[index] + (float)highFreqImage[index] * 4;
+    int value = (float)lowFreqImage[index]; //+ (float)highFreqImage[index] * 4;
     outputImage[index] = convert_ushort_sat(value);
 }

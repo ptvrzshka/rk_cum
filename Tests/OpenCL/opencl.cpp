@@ -4,10 +4,6 @@
 #include <math.h>
 #include <cstring>
 
-#include <opencv2/opencv.hpp>
-#include <opencv2/imgproc.hpp>
-#include <opencv2/highgui.hpp>
-
 #define MAX_SOURCE_SIZE (1048576) 
 
 
@@ -54,7 +50,7 @@ static int defectsLenth = 0;
 
 static cl_int bytesDivider = 8;
 static cl_float contrast = 1.0;
-static cl_float localContrastLimit = 16.0;
+static cl_float localContrastLimit = 21.0;
 static cl_float localContrastMultiplecative = 1.0;
 static cl_int localContrastDim = 37; // 35
 
@@ -374,7 +370,7 @@ void calc_fs(unsigned short* inputImage, int iter, bool start)
     status = clEnqueueReadBuffer(command_queue, memobj_fs, CL_TRUE, 0, memLenth * sizeof(unsigned short), Fs, 0, NULL, NULL);
 }
 
-cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE();
+//cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE();
 void process_image(unsigned short* inputImage, unsigned short* outputImage) 
 {
     // int stats[2] = { 0, 0 };
@@ -398,12 +394,12 @@ void process_image(unsigned short* inputImage, unsigned short* outputImage)
     exec_separate_frequences(outputImage, lowFreq, highFreq);
     exec_local_contrast_kernel(lowFreq, lowFreqProcessed);
     // exec_sobel_krnel(lowFreq, lowFreqProcessed);
-    // exec_summury_frequences_kernel(lowFreq, highFreq, outputImage);
+    exec_summury_frequences_kernel(lowFreq, highFreq, outputImage);
 
-    for (int i = 0; i < memLenth; ++i)
-    {
-        // if (lowFreqProcessed[i] > 65535)
-        //     std::cout << lowFreqProcessed[i] << std::endl;
-        outputImage[i] = (unsigned short)(lowFreqProcessed[i]);
-    }
+    // for (int i = 0; i < memLenth; ++i)
+    // {
+    //     // if (lowFreqProcessed[i] > 65535)
+    //     //     std::cout << lowFreqProcessed[i] << std::endl;
+    //     outputImage[i] = (unsigned short)(lowFreqProcessed[i]);
+    // }
 }
