@@ -11,6 +11,8 @@
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc.hpp>
 
+#include <gst/gst.h>
+
 
 std::mutex procMtx;
 std::condition_variable procCond;
@@ -60,9 +62,9 @@ int main(int argc, char *argv[])
 	InitializeCamera(new int[4] { 192, 168, 0, 15 }, 50000);
 
     std::thread readerThread(&ReaderLoop);
-	std::thread processorThread(&ProcessLoop);
+	// std::thread processorThread(&ProcessLoop);
 
-	init_image_processor(frameOut);
+	// init_image_processor(frameOut);
 
     std::cout << "Start reading" << std::endl;
 
@@ -71,8 +73,11 @@ int main(int argc, char *argv[])
 	startTime = std::chrono::system_clock::now();
 	while (true)
 	{
-		std::unique_lock<std::mutex> lock(visMtx);
-		visCond.wait(lock);
+		// std::unique_lock<std::mutex> lock(visMtx);
+		// visCond.wait(lock);
+
+		std::unique_lock<std::mutex> lock(procMtx);
+		procCond.wait(lock);
 
 		if (fs_cnt != 0) 
 		{
@@ -83,8 +88,6 @@ int main(int argc, char *argv[])
 			if (fs_cnt > 16)
 				fs_cnt = 0;
 		}
-
-		// process_image(frame, frameOut);
 
 		framesCnt += 1;
 		if (framesCnt == 30)
