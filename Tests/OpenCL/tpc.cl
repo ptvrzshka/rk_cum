@@ -67,7 +67,7 @@ __kernel void calibration_and_agc(__global unsigned short* inputImage,
     int index = get_global_id(0);
 
     // Calib 
-    unsigned short value = (unsigned short)((((int)inputImage[index] - Fs[index]) * K[index]) + 16384);
+    int value = (int)((((int)inputImage[index] - Fs[index]) * K[index]) + 16384);
 
     // Defect swap
     if (K[index] < 0.0001) 
@@ -76,14 +76,14 @@ __kernel void calibration_and_agc(__global unsigned short* inputImage,
         int defect_index = defects_cnt[index] * 14;
         for (int i = defect_index; i < defect_index + 14; ++i) 
             s += (float)inputImage[i] / 14;
-        value = (unsigned short)s;
+        value = (int)s;
         //printf("%d\n", value);
     }
     
     atomic_add(&statsCurrent[0], value / div); // For next calibration_and_agc iteration
 
     // Global contrast
-    unsigned short contrastValue = (unsigned short)(((int)value - statsPrev[0]) * contrast + 16384);
+    int contrastValue = (int)(((int)value - statsPrev[0]) * contrast + 16384);
 
     if (contrastValue <= 0) 
     {
@@ -210,6 +210,6 @@ __kernel void local_contrast(__global int* inputImage,
 __kernel void summary_frequences(__global int* lowFreqImage, __global int* highFreqImage, __global unsigned short* outputImage) 
 {
     int index = get_global_id(0);  
-    int value = (float)lowFreqImage[index]; // + (float)highFreqImage[index] * 4;
+    int value = (float)lowFreqImage[index] + (float)highFreqImage[index] * 4;
     outputImage[index] = convert_ushort_sat(value);
 }

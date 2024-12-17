@@ -76,7 +76,7 @@ void restore_fs()
 void load_calibration_data() 
 {
     FILE *fp;
-    const char fileName[] = "../OpenCL/K_new.data";
+    const char fileName[] = "/home/ubuntu/projects/Embedded/Tests/OpenCL/K_new.data";
     size_t source_size;
 
     fp = fopen(fileName, "r");
@@ -91,7 +91,7 @@ void load_calibration_data()
 void load_defects_data() 
 {
     FILE *fp;
-    const char fileName[] = "../OpenCL/defects_coord.data";
+    const char fileName[] = "/home/ubuntu/projects/Embedded/Tests/OpenCL/defects_coord.data";
     size_t source_size;
 
     fp = fopen(fileName, "r");
@@ -106,7 +106,7 @@ void load_defects_data()
 	source_size = fread(defects, sizeof(int), defectsLenth, fp);
 	fclose(fp);
 
-    const char fileName_cnt[] = "../OpenCL/defects_cnt.data";
+    const char fileName_cnt[] = "/home/ubuntu/projects/Embedded/Tests/OpenCL/defects_cnt.data";
     fp = fopen(fileName_cnt, "r");
 	if (!fp) {
 		fprintf(stderr, "Failed to load Defects Counter data.\n");
@@ -136,7 +136,7 @@ void get_device_id(cl_device_id *device_id)
 cl_program create_program(cl_context context, cl_device_id device_id) 
 {
     FILE *fp;
-    const char fileName[] = "../OpenCL/tpc.cl";
+    const char fileName[] = "/home/ubuntu/projects/Embedded/Tests/OpenCL/tpc.cl";
     size_t source_size;
     char *source_str;
 
@@ -186,7 +186,7 @@ void create_buffers(cl_context context, cl_command_queue command_queue, int memL
     // memobj_mean = clCreateBuffer(context, CL_MEM_READ_WRITE, sizeof(int), NULL, &status);
 }
 
-void init_image_processor(unsigned short *membuffer) 
+void init_image_processor() 
 {
     get_device_id(&device_id);
     context = clCreateContext(NULL, 1, &device_id, NULL, NULL, &status);
@@ -357,17 +357,19 @@ void calc_fs(unsigned short* inputImage, int iter, bool start)
 }
 
 //cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE();
-void process_image(unsigned short* inputImage, unsigned short* outputImage) 
-{
+void process_image(unsigned short* inputImage, unsigned short* outputImage, bool calib_flag=false) 
+{    
     exec_firts_kernel(inputImage, outputImage);
     exec_separate_frequences(outputImage, lowFreq, highFreq);
-    // exec_local_contrast_kernel(lowFreq, lowFreq);
+    exec_local_contrast_kernel(lowFreq, lowFreq);
     exec_summury_frequences_kernel(lowFreq, highFreq, outputImage);
 
     // for (int i = 0; i < memLenth; ++i)
     // {
     //     // if (lowFreqProcessed[i] > 65535)
     //     //     std::cout << lowFreqProcessed[i] << std::endl;
-    //     outputImage[i] = (unsigned short)(lowFreq[i]);
+    //     // outputImage[i] = (unsigned short)(lowFreq[i]);
+    //     if (outputImage[i] != 0)
+    //         std::cout << outputImage[i] << std::endl;
     // }
 }
