@@ -25,7 +25,7 @@ std::condition_variable visCond;
 bool stop_flag = false;
 
 std::queue<unsigned short *> rawQueue;
-std::queue<unsigned short *> procQueue;
+std::queue<unsigned char *> procQueue;
 const int maxQueueSize = 3;
 
 std::chrono::time_point<std::chrono::system_clock> startTime;
@@ -66,7 +66,7 @@ void ProcessLoop()
 			delete[] procQueue.front();
 			procQueue.pop();
 		}
-		unsigned short* frameOut = new unsigned short[WIDTH * HEIGHT];
+		unsigned char* frameOut = new unsigned char[WIDTH * HEIGHT];
 		unsigned short* frame = rawQueue.front();
 		if (calib_cnt < 25) 
 		{
@@ -78,8 +78,7 @@ void ProcessLoop()
 		}
 		process_image(frame, frameOut);
 		procQueue.push(frameOut);
-		// std::cout << procQueue.size() << " " << rawQueue.size() << std::endl;
-		// visCond.notify_one();
+		visCond.notify_one();
 
 		framesCnt += 1;
 		if (framesCnt == 30)
@@ -99,12 +98,11 @@ typedef struct
 	GstClockTime timestamp;
 } MyContext;
 
-unsigned char *frame8 = new unsigned char[WIDTH * HEIGHT];
 // Callback для предоставления новых данных
 static void need_data(GstElement * appsrc, guint unused, MyContext * ctx) {
 
-	// std::unique_lock<std::mutex> lock(visMtx);
-	// visCond.wait(lock);
+	std::unique_lock<std::mutex> lock(visMtx);
+	visCond.wait(lock);
 
 	// if (procQueue.empty()) 
 	// {
@@ -115,15 +113,12 @@ static void need_data(GstElement * appsrc, guint unused, MyContext * ctx) {
 	guint size;
 	GstFlowReturn ret;
 
-	unsigned short* frame = procQueue.front();
-
-	for (int i = 0; i < WIDTH * HEIGHT; ++i) 
-		frame8[i] = frame[i] >> 8;
+	unsigned char* frame = procQueue.front();
 
 	ctx->buffer = gst_buffer_new_allocate(NULL, WIDTH*HEIGHT, NULL);
 	GstMapInfo map;
     gst_buffer_map(ctx->buffer, &map, GST_MAP_WRITE);
-    memcpy(map.data, frame8, WIDTH * HEIGHT);
+    memcpy(map.data, frame, WIDTH * HEIGHT);
     gst_buffer_unmap(ctx->buffer, &map);
 
 	/* increment the timestamp every 1/2 second */
@@ -136,9 +131,6 @@ static void need_data(GstElement * appsrc, guint unused, MyContext * ctx) {
 
 	g_signal_emit_by_name (appsrc, "push-buffer", ctx->buffer, &ret);
 	gst_buffer_unref (ctx->buffer);
-
-	// delete[] frame;
-	// procQueue.pop();
 }
 
 static void media_configure (GstRTSPMediaFactory * factory, GstRTSPMedia * media,

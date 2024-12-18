@@ -12,15 +12,14 @@ static cl_int status;
 static cl_context context; 
 static cl_command_queue command_queue;
 
-static cl_kernel sobel_kernel = NULL;
 static cl_kernel fs_kernel = NULL;
 static cl_kernel base_proc_kernel = NULL;
 static cl_kernel freq_sep_kernel = NULL;
 static cl_kernel local_contrast_kernel = NULL;
 static cl_kernel freq_sum_kernel = NULL;
-// static cl_kernel mean_kernel = NULL;
 
 static cl_mem memobj_in = NULL;
+static cl_mem memobj_temp = NULL;
 static cl_mem memobj_out = NULL;
 
 static cl_mem memobj_k = NULL;
@@ -39,12 +38,10 @@ static cl_mem memobj_lcMeansNew = NULL;
 static cl_mem memobj_lcStdsPrev = NULL;
 static cl_mem memobj_lcStdsNew = NULL;
 
-// static cl_mem memobj_mean = NULL;
-
 static const int memLenth = 640 * 512;
 static size_t global_work_size[1] = { memLenth };
-static size_t global_work_size_1[1] = { 640 * 512 };
-static size_t local_work_size_1[1] = { 31 * 31 };
+static size_t global_work_size_1[2] = { 512, 640 };
+static size_t local_work_size_1[2] = { 32, 32 };
 static int defectsLenth = 0;
 
 static cl_int bytesDivider = 8;
@@ -165,7 +162,8 @@ cl_kernel create_kernel(cl_program program, const char *kernelName)
 void create_buffers(cl_context context, cl_command_queue command_queue, int memLenth) 
 {
     memobj_in = clCreateBuffer(context, CL_MEM_READ_ONLY, memLenth * sizeof(unsigned short), NULL, &status);
-    memobj_out = clCreateBuffer(context, CL_MEM_READ_WRITE, memLenth * sizeof(unsigned short), NULL, &status);
+    memobj_out = clCreateBuffer(context, CL_MEM_WRITE_ONLY, memLenth * sizeof(unsigned char), NULL, &status);
+    memobj_temp = clCreateBuffer(context, CL_MEM_READ_WRITE, memLenth * sizeof(unsigned short), NULL, &status);
     memobj_fs = clCreateBuffer(context, CL_MEM_READ_WRITE, memLenth * sizeof(unsigned short), NULL, &status);
     memobj_k = clCreateBuffer(context, CL_MEM_READ_ONLY, memLenth * sizeof(float), NULL, &status);
     memobj_defects = clCreateBuffer(context, CL_MEM_READ_ONLY, defectsLenth * sizeof(int), NULL, &status);
@@ -199,18 +197,13 @@ void init_image_processor()
 
     cl_program program = create_program(context, device_id);
 
-    sobel_kernel = create_kernel(program, "sobel");  
     fs_kernel = create_kernel(program, "calc_fs");  
     base_proc_kernel = create_kernel(program, "calibration_and_agc");  
     freq_sep_kernel = create_kernel(program, "separate_frequences");  
     local_contrast_kernel = create_kernel(program, "local_contrast"); 
     freq_sum_kernel = create_kernel(program, "summary_frequences");   
-    //mean_kernel = create_kernel(program, "mean"); 
 
     create_buffers(context, command_queue, memLenth);
-
-    // status = clSetKernelArg(sobel_kernel, 0, sizeof(cl_mem), (void *)&memobj_in);
-    // status = clSetKernelArg(sobel_kernel, 1, sizeof(cl_mem), (void *)&memobj_out);
 
     status = clSetKernelArg(fs_kernel, 0, sizeof(cl_mem), (void *)&memobj_in);
     status = clSetKernelArg(fs_kernel, 1, sizeof(cl_mem), (void *)&memobj_fs);
@@ -225,9 +218,9 @@ void init_image_processor()
     status = clSetKernelArg(base_proc_kernel, 7, sizeof(cl_int), &bytesDivider);
     status = clSetKernelArg(base_proc_kernel, 8, sizeof(cl_float), &contrast);
     status = clSetKernelArg(base_proc_kernel, 9, sizeof(cl_mem), (void *)&memobj_rangeCnt);
-    status = clSetKernelArg(base_proc_kernel, 10, sizeof(cl_mem), (void *)&memobj_out);
+    status = clSetKernelArg(base_proc_kernel, 10, sizeof(cl_mem), (void *)&memobj_temp);
 
-    status = clSetKernelArg(freq_sep_kernel, 0, sizeof(cl_mem), (void *)&memobj_in);
+    status = clSetKernelArg(freq_sep_kernel, 0, sizeof(cl_mem), (void *)&memobj_temp);
     status = clSetKernelArg(freq_sep_kernel, 1, sizeof(cl_mem), (void *)&memobj_lowFreq);
     status = clSetKernelArg(freq_sep_kernel, 2, sizeof(cl_mem), (void *)&memobj_highFreq);
 
@@ -244,35 +237,19 @@ void init_image_processor()
     status = clSetKernelArg(freq_sum_kernel, 1, sizeof(cl_mem), (void *)&memobj_highFreq);
     status = clSetKernelArg(freq_sum_kernel, 2, sizeof(cl_mem), (void *)&memobj_out);
 
-    status = clSetKernelArg(sobel_kernel, 0, sizeof(cl_mem), (void *)&memobj_lowFreq);
-    status = clSetKernelArg(sobel_kernel, 1, sizeof(cl_mem), (void *)&memobj_lowFreqProcessed);
-
-    // status = clSetKernelArg(mean_kernel, 0, sizeof(cl_mem), (void *)&memobj_in);
-    // status = clSetKernelArg(mean_kernel, 1, sizeof(cl_mem), (void *)&memobj_mean);
-    // status = clSetKernelArg(mean_kernel, 2, sizeof(cl_int), &bytesDivider);
-
     restore_fs();
     load_calibration_data();
     load_defects_data();
 }
 
-void exec_sobel_krnel(int* inputImage, int* outputImage) 
-{
-    status = clEnqueueWriteBuffer(command_queue, memobj_lowFreq, CL_TRUE, 0, memLenth * sizeof(int), inputImage, 0, NULL, NULL);
-
-    status = clEnqueueNDRangeKernel(command_queue, sobel_kernel, 1, NULL, global_work_size, NULL, 0, NULL, NULL);
-
-    status = clEnqueueReadBuffer(command_queue, memobj_lowFreqProcessed, CL_TRUE, 0, memLenth * sizeof(int), outputImage, 0, NULL, NULL);
-}
-
-void exec_summury_frequences_kernel(int* lowFreq, int* highFreq, unsigned short* outputImage) 
+void exec_summury_frequences_kernel(int* lowFreq, int* highFreq, unsigned char* outputImage) 
 {
     status = clEnqueueWriteBuffer(command_queue, memobj_lowFreq, CL_TRUE, 0, memLenth * sizeof(int), lowFreq, 0, NULL, NULL);
     status = clEnqueueWriteBuffer(command_queue, memobj_highFreq, CL_TRUE, 0, memLenth * sizeof(int), highFreq, 0, NULL, NULL);
 
     status = clEnqueueNDRangeKernel(command_queue, freq_sum_kernel, 1, NULL, global_work_size, NULL, 0, NULL, NULL);
 
-    status = clEnqueueReadBuffer(command_queue, memobj_out, CL_TRUE, 0, memLenth * sizeof(unsigned short), outputImage, 0, NULL, NULL);
+    status = clEnqueueReadBuffer(command_queue, memobj_out, CL_TRUE, 0, memLenth * sizeof(unsigned char), outputImage, 0, NULL, NULL);
 }
 
 void exec_local_contrast_kernel(int* inputImage, int* outputImage) 
@@ -281,6 +258,7 @@ void exec_local_contrast_kernel(int* inputImage, int* outputImage)
     status = clEnqueueWriteBuffer(command_queue, memobj_lcMeansPrev, CL_TRUE, 0, memLenth * sizeof(float), lcMeansNew, 0, NULL, NULL);
     status = clEnqueueWriteBuffer(command_queue, memobj_lcStdsPrev, CL_TRUE, 0, memLenth * sizeof(float), lcStdsNew, 0, NULL, NULL);
 
+    // status = clEnqueueNDRangeKernel(command_queue, local_contrast_kernel, 2, NULL, global_work_size_1, local_work_size_1, 0, NULL, NULL);
     status = clEnqueueNDRangeKernel(command_queue, local_contrast_kernel, 1, NULL, global_work_size_1, NULL, 0, NULL, NULL);
 
     status = clEnqueueReadBuffer(command_queue, memobj_lowFreqProcessed, CL_TRUE, 0, memLenth * sizeof(int), outputImage, 0, NULL, NULL);
@@ -290,7 +268,7 @@ void exec_local_contrast_kernel(int* inputImage, int* outputImage)
 
 void exec_separate_frequences(unsigned short* inputImage, int* lowFreq, int* highFreq) 
 {
-    status = clEnqueueWriteBuffer(command_queue, memobj_in, CL_TRUE, 0, memLenth * sizeof(unsigned short), inputImage, 0, NULL, NULL);
+    status = clEnqueueWriteBuffer(command_queue, memobj_temp, CL_TRUE, 0, memLenth * sizeof(unsigned short), inputImage, 0, NULL, NULL);
     status = clEnqueueWriteBuffer(command_queue, memobj_lowFreq, CL_TRUE, 0, memLenth * sizeof(int), lowFreq, 0, NULL, NULL);
     status = clEnqueueWriteBuffer(command_queue, memobj_highFreq, CL_TRUE, 0, memLenth * sizeof(int), highFreq, 0, NULL, NULL);
 
@@ -323,7 +301,7 @@ void exec_firts_kernel(unsigned short* inputImage, unsigned short* outputImage)
 
     status = clEnqueueReadBuffer(command_queue, memobj_statsCurrent, CL_TRUE, 0, 2 * sizeof(int), statsCurrent, 0, NULL, NULL);
     status = clEnqueueReadBuffer(command_queue, memobj_rangeCnt, CL_TRUE, 0, 2 * sizeof(int), rangeCnt, 0, NULL, NULL);
-    status = clEnqueueReadBuffer(command_queue, memobj_out, CL_TRUE, 0, memLenth * sizeof(unsigned short), outputImage, 0, NULL, NULL);
+    status = clEnqueueReadBuffer(command_queue, memobj_temp, CL_TRUE, 0, memLenth * sizeof(unsigned short), outputImage, 0, NULL, NULL);
 
     int N = rangeCnt[0] + rangeCnt[1];
     if (N <= p_agc_black * memLenth && contrast < agc_limit)
@@ -357,19 +335,10 @@ void calc_fs(unsigned short* inputImage, int iter, bool start)
 }
 
 //cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE();
-void process_image(unsigned short* inputImage, unsigned short* outputImage, bool calib_flag=false) 
+void process_image(unsigned short* inputImage, unsigned char* outputImage) 
 {    
-    exec_firts_kernel(inputImage, outputImage);
-    exec_separate_frequences(outputImage, lowFreq, highFreq);
-    exec_local_contrast_kernel(lowFreq, lowFreq);
+    exec_firts_kernel(inputImage, inputImage);
+    exec_separate_frequences(inputImage, lowFreq, highFreq);
+    // exec_local_contrast_kernel(lowFreq, lowFreq);
     exec_summury_frequences_kernel(lowFreq, highFreq, outputImage);
-
-    // for (int i = 0; i < memLenth; ++i)
-    // {
-    //     // if (lowFreqProcessed[i] > 65535)
-    //     //     std::cout << lowFreqProcessed[i] << std::endl;
-    //     // outputImage[i] = (unsigned short)(lowFreq[i]);
-    //     if (outputImage[i] != 0)
-    //         std::cout << outputImage[i] << std::endl;
-    // }
 }
