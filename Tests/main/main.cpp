@@ -78,7 +78,7 @@ void ProcessLoop()
 		}
 		process_image(frame, frameOut);
 		procQueue.push(frameOut);
-		visCond.notify_one();
+		// visCond.notify_one();
 
 		framesCnt += 1;
 		if (framesCnt == 30)
@@ -101,8 +101,8 @@ typedef struct
 // Callback для предоставления новых данных
 static void need_data(GstElement * appsrc, guint unused, MyContext * ctx) {
 
-	std::unique_lock<std::mutex> lock(visMtx);
-	visCond.wait(lock);
+	// std::unique_lock<std::mutex> lock(visMtx);
+	// visCond.wait(lock);
 
 	// if (procQueue.empty()) 
 	// {

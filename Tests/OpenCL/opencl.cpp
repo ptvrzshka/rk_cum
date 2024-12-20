@@ -4,6 +4,10 @@
 #include <math.h>
 #include <cstring>
 
+#include <opencv2/core/core.hpp>
+#include <opencv2/highgui/highgui.hpp>
+#include <opencv2/imgproc.hpp>
+
 #define MAX_SOURCE_SIZE (1048576) 
 
 
@@ -46,7 +50,7 @@ static int defectsLenth = 0;
 
 static cl_int bytesDivider = 8;
 static cl_float contrast = 1.0;
-static cl_float localContrastLimit = 21.0;
+static cl_float localContrastLimit = 32.0;
 static cl_float localContrastMultiplecative = 1.0;
 static cl_int localContrastDim = 37; // 35
 
@@ -63,6 +67,8 @@ static int* highFreq = new int[memLenth];
 
 static float* lcMeansNew = new float[memLenth];
 static float* lcStdsNew = new float[memLenth];
+
+static unsigned short* tempImage = new unsigned short[memLenth];
 
 
 void restore_fs() 
@@ -259,7 +265,7 @@ void exec_local_contrast_kernel(int* inputImage, int* outputImage)
     status = clEnqueueWriteBuffer(command_queue, memobj_lcStdsPrev, CL_TRUE, 0, memLenth * sizeof(float), lcStdsNew, 0, NULL, NULL);
 
     // status = clEnqueueNDRangeKernel(command_queue, local_contrast_kernel, 2, NULL, global_work_size_1, local_work_size_1, 0, NULL, NULL);
-    status = clEnqueueNDRangeKernel(command_queue, local_contrast_kernel, 1, NULL, global_work_size_1, NULL, 0, NULL, NULL);
+    status = clEnqueueNDRangeKernel(command_queue, local_contrast_kernel, 1, NULL, global_work_size, NULL, 0, NULL, NULL);
 
     status = clEnqueueReadBuffer(command_queue, memobj_lowFreqProcessed, CL_TRUE, 0, memLenth * sizeof(int), outputImage, 0, NULL, NULL);
     status = clEnqueueReadBuffer(command_queue, memobj_lcMeansNew, CL_TRUE, 0, memLenth * sizeof(float), lcMeansNew, 0, NULL, NULL);
@@ -283,7 +289,7 @@ void exec_separate_frequences(unsigned short* inputImage, int* lowFreq, int* hig
 
 static const float p_agc_black = 0.015;
 static const float p_agc_white = 0.005;
-static const float agc_limit = 32.0;
+static const float agc_limit = 8.0;
 
 void exec_firts_kernel(unsigned short* inputImage, unsigned short* outputImage) 
 {
@@ -337,8 +343,8 @@ void calc_fs(unsigned short* inputImage, int iter, bool start)
 //cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE();
 void process_image(unsigned short* inputImage, unsigned char* outputImage) 
 {    
-    exec_firts_kernel(inputImage, inputImage);
-    exec_separate_frequences(inputImage, lowFreq, highFreq);
-    // exec_local_contrast_kernel(lowFreq, lowFreq);
+    exec_firts_kernel(inputImage, tempImage);
+    exec_separate_frequences(tempImage, lowFreq, highFreq);
+    exec_local_contrast_kernel(lowFreq, lowFreq);
     exec_summury_frequences_kernel(lowFreq, highFreq, outputImage);
 }
