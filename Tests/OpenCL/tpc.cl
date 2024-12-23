@@ -146,7 +146,7 @@ __kernel void local_contrast(__global int* inputImage,
     int dim = 31; int step = 4;
     int dim2 = dim * dim / step; 
     float meanPrev = meansPrev[index]; 
-
+    float cnt = 0.0;
     for (int i = (-dim / 2); i < dim / 2 + 1; i+=step)
     {
         for (int j = (-dim / 2); j < dim / 2 + 1; j+=step)
@@ -159,11 +159,19 @@ __kernel void local_contrast(__global int* inputImage,
                 index_y = y - j;
             int index_new = index_x * 640 + index_y;
             float elem = inputImage[index_new];
-            meanFrame += elem / dim2;
-            float k_interp = 1.0 - (pown((float)i, 2) + pown((float)j, 2)) / (float)((dim2 * step) / 2);
-            // k_interp = pown(k_interp, 4);
-            stdFrame += pown(meanPrev - elem, 2) * k_interp;
+
             // float k_interp = 1.0 - (pown((float)i, 2) + pown((float)j, 2)) / (float)((dim2 * step) / 2);
+            // k_interp = sqrt(k_interp);
+            cnt += 1.0;
+            float newMean = meanFrame + (elem - meanFrame) / cnt;
+            stdFrame += ((elem - meanFrame) * (elem - newMean)); //* k_interp;
+            meanFrame = newMean; 
+
+            // float k_interp = 1.0 - (pown((float)i, 2) + pown((float)j, 2)) / (float)((dim2 * step) / 2);
+            // meanFrame += elem / dim2;
+            // k_interp = pown(k_interp, 4);
+            // stdFrame += pown(meanPrev - elem, 2) * k_interp;
+
             // // k_interp = sqrt(k_interp);
             // // k_interp = 1.0;
             // float elem_interp = elem * k_interp;
@@ -174,8 +182,9 @@ __kernel void local_contrast(__global int* inputImage,
         }
     }
 
-    meanFrame *= step;
-    stdFrame = sqrt(stdFrame / dim2 * step);
+    // meanFrame *= step;
+    stdFrame = sqrt(stdFrame / (cnt - 1));
+
     meansNew[index] = meanFrame;
     stdsNew[index] = stdFrame;
 
@@ -184,7 +193,8 @@ __kernel void local_contrast(__global int* inputImage,
     // float c = dim_max;
     // float mc = a * pown(stdsPrev[index], 4) + dim_max;
     float k = 65535.0 / (stdFrame + 1.0) * multiplecative / 1.0; 
-    k = sqrt(k);
+    // k = sqrt(k);
+    k = rootn(k, 3);
     // float k = (65535.0 - stdFrame) / 65535.0 * (limit - 1) + 1;
     // float k_min = 1; k_max = limit;
     // float k = 
@@ -193,6 +203,7 @@ __kernel void local_contrast(__global int* inputImage,
     if (k <= 1.0)
         k = 1.0;
     int contrastValue = (inputImage[index] - meanFrame) * k + meanFrame;  
+
     outputImage[index] = convert_ushort_sat(contrastValue);
 
 

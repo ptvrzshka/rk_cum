@@ -50,7 +50,7 @@ static int defectsLenth = 0;
 
 static cl_int bytesDivider = 8;
 static cl_float contrast = 1.0;
-static cl_float localContrastLimit = 32.0;
+static cl_float localContrastLimit = 64.0;
 static cl_float localContrastMultiplecative = 1.0;
 static cl_int localContrastDim = 37; // 35
 
@@ -289,7 +289,7 @@ void exec_separate_frequences(unsigned short* inputImage, int* lowFreq, int* hig
 
 static const float p_agc_black = 0.015;
 static const float p_agc_white = 0.005;
-static const float agc_limit = 8.0;
+static const float agc_limit = 16.0; // 8 for local
 
 void exec_firts_kernel(unsigned short* inputImage, unsigned short* outputImage) 
 {
@@ -341,10 +341,23 @@ void calc_fs(unsigned short* inputImage, int iter, bool start)
 }
 
 //cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE();
+cv::Mat sharpKernel = (cv::Mat_<int>(3, 3) <<
+                                    0, -1, 0,
+                                    -1, 5, -1,
+                                    0, -1, 0);
+int diameter = 9;         
+double sigmaColor = 15.0;   
+double sigmaSpace = 18.0;   
+cv::Mat bilateralImage;
 void process_image(unsigned short* inputImage, unsigned char* outputImage) 
 {    
     exec_firts_kernel(inputImage, tempImage);
     exec_separate_frequences(tempImage, lowFreq, highFreq);
     exec_local_contrast_kernel(lowFreq, lowFreq);
     exec_summury_frequences_kernel(lowFreq, highFreq, outputImage);
+
+    cv::Mat image(512, 640, CV_8UC1, outputImage);
+    cv::filter2D(image, image, CV_8UC1, sharpKernel);
+    // cv::bilateralFilter(image, bilateralImage, diameter, sigmaColor, sigmaSpace);
+    memcpy(outputImage, image.data, memLenth);
 }
