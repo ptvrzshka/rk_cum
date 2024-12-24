@@ -61,7 +61,7 @@ __kernel void calibration_and_agc(__global unsigned short* inputImage,
                                  __global int* defects, __global int* defects_cnt,
                                  __global int* statsPrev, __global int* statsCurrent,
                                  int div,
-                                 float contrast, __global int* N,
+                                 float contrast, __global int* hist,
                                  __global unsigned short* outputImage)
 {
     int index = get_global_id(0);
@@ -77,34 +77,22 @@ __kernel void calibration_and_agc(__global unsigned short* inputImage,
         for (int i = defect_index; i < defect_index + 14; ++i) 
             s += (float)inputImage[i] / 14;
         value = (int)s;
-        //printf("%d\n", value);
     }
     
-    atomic_add(&statsCurrent[0], value / div); // For next calibration_and_agc iteration
+    atomic_add(&statsCurrent[0], value / div); // For the next iteration
 
-    // Global contrast
+    atomic_inc(&hist[convert_ushort_sat(value)]);
+    // hist[convert_ushort_sat(value)] += 1;
+
     int contrastValue = (int)(((int)value - statsPrev[0]) * contrast + 24576);
 
-    if (contrastValue <= 0) 
-    {
-        contrastValue = 0;
-        atomic_inc(&N[0]);
-    }
-
-    if (contrastValue >= 65535) 
-    {
-        contrastValue = 65535;
-        atomic_inc(&N[1]);
-    }
-
-    outputImage[index] = contrastValue;
+    outputImage[index] = convert_ushort_sat(contrastValue);
 }
 
 __kernel void separate_frequences(__global unsigned short* inputImage, 
                                 __global int* lowFreqImage, __global int* highFreqImage)
 {
     int index = get_global_id(0);  
-    int size = get_global_size(0);
 
     int value = inputImage[index]; 
 
@@ -145,7 +133,6 @@ __kernel void local_contrast(__global int* inputImage,
     float meanFrame = 0.0; float stdFrame = 0.0;
     int dim = 31; int step = 4;
     int dim2 = dim * dim / step; 
-    float meanPrev = meansPrev[index]; 
     float cnt = 0.0;
     for (int i = (-dim / 2); i < dim / 2 + 1; i+=step)
     {
@@ -182,22 +169,12 @@ __kernel void local_contrast(__global int* inputImage,
         }
     }
 
-    // meanFrame *= step;
     stdFrame = sqrt(stdFrame / (cnt - 1));
 
     meansNew[index] = meanFrame;
     stdsNew[index] = stdFrame;
-
-    // float dim_max = 1.5; float dim_min = 1.0;
-    // float a = (-dim_max + dim_min) / pown(65535.0, 4);
-    // float c = dim_max;
-    // float mc = a * pown(stdsPrev[index], 4) + dim_max;
     float k = 65535.0 / (stdFrame + 1.0) * multiplecative / 1.0; 
-    // k = sqrt(k);
     k = rootn(k, 3);
-    // float k = (65535.0 - stdFrame) / 65535.0 * (limit - 1) + 1;
-    // float k_min = 1; k_max = limit;
-    // float k = 
     if (k > limit)
         k = limit;
     if (k <= 1.0)
@@ -205,56 +182,6 @@ __kernel void local_contrast(__global int* inputImage,
     int contrastValue = (inputImage[index] - meanFrame) * k + meanFrame;  
 
     outputImage[index] = convert_ushort_sat(contrastValue);
-
-
-
-    // int index = get_global_id(0); 
-    // int x = index / 640;
-    // int y = index % 640;
-    // float x_max = 0.0; float x_min = 65535.0;
-    // float meanFrame = 0.0; float stdFrame = 0.0;
-    // int dim = 43; 
-    // int dim2 = dim * dim / 4; 
-    // float meanPrev = meansPrev[index]; 
-    // for (int l = 0; l < dim2; ++l) 
-    // {
-    //     if (l % 4 != 0)
-    //         continue;
-    //     int i = l / dim - dim / 2;
-    //     int j = l % dim - dim / 2;
-    //     int index_x = abs(x + i);
-    //     int index_y = abs(y + j);
-    //     if (x + i > 511)
-    //         index_x = x - i;
-    //     if (y + j > 640)
-    //         index_y = y - j;
-    //     int index_new = index_x * 640 + index_y;
-    //     float elem = inputImage[index_new];
-    //     meanFrame += elem / dim2;
-    //     stdFrame += pown(meanPrev - elem, 2);
-    //     float k_interp = 1.0 - (pown((float)i, 2) + pown((float)j, 2)) / (float)(dim2 / 2);
-    //     k_interp = sqrt(k_interp);
-    //     float elem_interp = elem * k_interp;
-    //     if (elem_interp > x_max)
-    //         x_max = elem_interp;
-    //     if (elem_interp < x_min)
-    //         x_min = elem_interp;
-    // }
-    // meanFrame *= 4;
-    // meansNew[index] = meanFrame;
-    // stdsNew[index] = sqrt(stdFrame / dim2);
-
-    // float dim_max = 1.5; float dim_min = 0.1;
-    // float a = (-dim_max + dim_min) / pown(65535.0, 4);
-    // float c = dim_max;
-    // float mc = a * pown(stdsPrev[index], 4) + dim_max;
-    // float k = 65535.0 / (x_max - x_min + 1.0) * multiplecative; 
-    // if (k > limit)
-    //     k = limit;
-    // if (k <= 1.0)
-    //     k = 1.0;
-    // int contrastValue = (inputImage[index] - meanFrame) * k + meanFrame;  
-    // outputImage[index] = convert_ushort_sat(contrastValue);
 }
  
 __kernel void summary_frequences(__global int* lowFreqImage, __global int* highFreqImage, __global unsigned char* outputImage) 

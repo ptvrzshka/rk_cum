@@ -60,7 +60,7 @@ static int* defects = nullptr;
 static int* defectsCnt = new int[memLenth];
 static int* statsPrev = new int[2] {0 , 0};
 static int* statsCurrent = new int[2] {0 , 0};
-static int* rangeCnt = new int[2] {0 , 0};
+static int* hist = new int[65536];
 
 static int* lowFreq = new int[memLenth];
 static int* highFreq = new int[memLenth];
@@ -176,7 +176,7 @@ void create_buffers(cl_context context, cl_command_queue command_queue, int memL
     memobj_defectsCnt = clCreateBuffer(context, CL_MEM_READ_ONLY, memLenth * sizeof(int), NULL, &status);
     memobj_statsPrev = clCreateBuffer(context, CL_MEM_WRITE_ONLY, 2 * sizeof(int), NULL, &status);
     memobj_statsCurrent = clCreateBuffer(context, CL_MEM_READ_WRITE, 2 * sizeof(int), NULL, &status);
-    memobj_rangeCnt = clCreateBuffer(context, CL_MEM_READ_WRITE, 2 * sizeof(int), NULL, &status);
+    memobj_rangeCnt = clCreateBuffer(context, CL_MEM_READ_WRITE, 65536 * sizeof(int), NULL, &status);
 
     memobj_lowFreq = clCreateBuffer(context, CL_MEM_READ_WRITE, memLenth * sizeof(int), NULL, &status);
     memobj_lowFreqProcessed = clCreateBuffer(context, CL_MEM_READ_WRITE, memLenth * sizeof(int), NULL, &status);
@@ -287,12 +287,14 @@ void exec_separate_frequences(unsigned short* inputImage, int* lowFreq, int* hig
     // printf("Std: %d\n", statsContrast[1]);
 }
 
-static const float p_agc_black = 0.015;
+static const float p_agc_black = 0.001;
 static const float p_agc_white = 0.005;
-static const float agc_limit = 16.0; // 8 for local
+static const float agc_limit = 8.0; // 8 for local
 
 void exec_firts_kernel(unsigned short* inputImage, unsigned short* outputImage) 
 {
+    memset(hist, 0, memLenth);
+
     status = clEnqueueWriteBuffer(command_queue, memobj_in, CL_TRUE, 0, memLenth * sizeof(unsigned short), inputImage, 0, NULL, NULL);
     status = clEnqueueWriteBuffer(command_queue, memobj_k, CL_TRUE, 0, memLenth * sizeof(float), K, 0, NULL, NULL);
     status = clEnqueueWriteBuffer(command_queue, memobj_fs, CL_TRUE, 0, memLenth * sizeof(unsigned short), Fs, 0, NULL, NULL);
@@ -300,26 +302,62 @@ void exec_firts_kernel(unsigned short* inputImage, unsigned short* outputImage)
     status = clEnqueueWriteBuffer(command_queue, memobj_defectsCnt, CL_TRUE, 0, memLenth * sizeof(int), defectsCnt, 0, NULL, NULL);
     status = clEnqueueWriteBuffer(command_queue, memobj_statsPrev, CL_TRUE, 0, 2 * sizeof(int), statsPrev, 0, NULL, NULL);
     status = clEnqueueWriteBuffer(command_queue, memobj_statsCurrent, CL_TRUE, 0, 2 * sizeof(int), statsCurrent, 0, NULL, NULL);
-    status = clEnqueueWriteBuffer(command_queue, memobj_rangeCnt, CL_TRUE, 0, 2 * sizeof(int), rangeCnt, 0, NULL, NULL);
+    status = clEnqueueWriteBuffer(command_queue, memobj_rangeCnt, CL_TRUE, 0, 65536 * sizeof(int), hist, 0, NULL, NULL);
     status = clSetKernelArg(base_proc_kernel, 8, sizeof(cl_float), &contrast);
 
     status = clEnqueueNDRangeKernel(command_queue, base_proc_kernel, 1, NULL, global_work_size, NULL, 0, NULL, NULL);
 
     status = clEnqueueReadBuffer(command_queue, memobj_statsCurrent, CL_TRUE, 0, 2 * sizeof(int), statsCurrent, 0, NULL, NULL);
-    status = clEnqueueReadBuffer(command_queue, memobj_rangeCnt, CL_TRUE, 0, 2 * sizeof(int), rangeCnt, 0, NULL, NULL);
+    status = clEnqueueReadBuffer(command_queue, memobj_rangeCnt, CL_TRUE, 0, 65536 * sizeof(int), hist, 0, NULL, NULL);
     status = clEnqueueReadBuffer(command_queue, memobj_temp, CL_TRUE, 0, memLenth * sizeof(unsigned short), outputImage, 0, NULL, NULL);
 
-    int N = rangeCnt[0] + rangeCnt[1];
-    if (N <= p_agc_black * memLenth && contrast < agc_limit)
-        contrast = contrast * (1 + 0.03125) + 1e-6;
-    if (N >= p_agc_white * memLenth && contrast > 0.0)
-        contrast = contrast * (1 - 0.03125) + 1e-6;
-    // printf("Mean: %d ", statsCurrent[0] / memLenth * bytesDivider);
-    // printf("Contrast Mean: %d\n", statsContrast[0] / memLenth * bytesDivider);
+    int N_black = 0; int N_white = 0;
+    int l_tail = 0; int r_tail = 65535;
+    bool l_flag = false; bool r_flag = false;
+    for (int i = 0; i < 65536; ++i) 
+    {
+        // printf("%d\n", hist[i]);
+        if (!l_flag) 
+        {
+            N_black += hist[i];
+            if (N_black > memLenth * p_agc_black) 
+            {
+                l_tail = i;
+                l_flag = true;
+            }
+        }
+
+        if (!r_flag) 
+        {
+            N_white += hist[65535 - i];
+            if (N_white > memLenth * p_agc_white) 
+            {
+                r_tail = 65535 - i;
+                r_flag = true;
+            }
+        }
+
+        if (l_flag && r_flag)
+            break;
+    }
+
+    contrast = 65535.0 / (r_tail - l_tail + 1.0);
+    // printf("%f\n", contrast);
+
+    if (contrast > agc_limit)
+        contrast = agc_limit;
+
     statsPrev[0] = statsCurrent[0] / memLenth * bytesDivider;
     statsCurrent[0] = 0;
-    // statsContrast[0] = 0;
-    rangeCnt[0] = 0; rangeCnt[1] = 0;
+
+    // int N = rangeCnt[0] + rangeCnt[1];
+    // if (N <= p_agc_black * memLenth && contrast < agc_limit)
+    //     contrast = contrast * (1 + 0.03125) + 1e-6;
+    // if (N >= p_agc_white * memLenth && contrast > 0.0)
+    //     contrast = contrast * (1 - 0.03125) + 1e-6;
+    // statsPrev[0] = statsCurrent[0] / memLenth * bytesDivider;
+    // statsCurrent[0] = 0;
+    // rangeCnt[0] = 0; rangeCnt[1] = 0;
 }
 
 void calc_fs(unsigned short* inputImage, int iter, bool start) 
