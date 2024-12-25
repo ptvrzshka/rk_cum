@@ -53,9 +53,9 @@ static int defectsLenth = 0;
 
 static cl_int bytesDivider = 8;
 static cl_float contrast = 1.0;
-static cl_float localContrastLimit = 32.0;
+static cl_float localContrastLimit = 64.0;
 static cl_float localContrastMultiplecative = 1.0;
-static cl_int localContrastDim = 37; // 35
+static cl_int localContrastDim = 31; // 35
 
 static cl_float sigma_s = 15.0;
 static cl_float sigma_r = 15.0;

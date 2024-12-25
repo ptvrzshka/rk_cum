@@ -156,7 +156,7 @@ __kernel void local_contrast(__global int* inputImage,
     meansNew[index] = meanFrame;
     stdsNew[index] = stdFrame;
 
-    float k = 65535.0 / (stdFrame + 1.0); 
+    float k = 65535.0 / (stdFrame * multiplecative + 1.0); 
     // k = half_powr(k, 2.0 / 3.0)
     k = rootn(k, 3) * multiplecative;
     if (k > limit)
