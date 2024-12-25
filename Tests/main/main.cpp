@@ -171,18 +171,15 @@ static void need_data(GstElement * appsrc, guint unused, MyContext * ctx) {
 	GST_BUFFER_DURATION (ctx->buffer) = gst_util_uint64_scale_int (1, GST_SECOND, frameRate);
 	ctx->timestamp += GST_BUFFER_DURATION (ctx->buffer);
 
-	g_signal_emit_by_name (appsrc, "push-buffer", ctx->buffer, &ret);
-	gst_buffer_unref (ctx->buffer);
+	g_signal_emit_by_name(appsrc, "push-buffer", ctx->buffer, &ret);
+	gst_buffer_unref(ctx->buffer);
 }
 
 
-void push_data_to_appsrc(GstAppSrc * appsrc, guint unused)
+void push_data_to_appsrc(GstElement* appsrc, guint unused)
  {
 
 	std::cout << "kek" << std::endl;
-	 
-    // if (data->push_in_progress) 
-    //     return TRUE;
 
 	if (procQueue.empty())
 		return;
@@ -197,16 +194,7 @@ void push_data_to_appsrc(GstAppSrc * appsrc, guint unused)
     memcpy(map.data, frame, WIDTH * HEIGHT);
     gst_buffer_unmap(buffer, &map);
 
-    ret = gst_app_src_push_buffer(appsrc, buffer);
-
-    if (ret != GST_FLOW_OK) 
-	{
-        std::cerr << "Error pushing buffer to appsrc." << std::endl;
-        return;
-    }
-
-	// g_signal_emit_by_name(appsrc, "push-buffer", buffer, &ret);
-
+	g_signal_emit_by_name(appsrc, "push-buffer", buffer, &ret);
 	gst_buffer_unref(buffer);
 
     return;
@@ -215,8 +203,7 @@ void push_data_to_appsrc(GstAppSrc * appsrc, guint unused)
 GstElement* create_udp_pipeline(const char* host, guint port, GstElement *appsrc) {
     GstElement *pipeline, *convert, *encoder, *payloader, *sink;
 
-    // Ñîçäàåì ýëåìåíòû ïàéïëàéíà
-    pipeline = gst_pipeline_new("udp-live-stream");
+    pipeline = gst_pipeline_new("rtp-live-stream");
     convert = gst_element_factory_make("videoconvert", "convert");
     encoder = gst_element_factory_make("x264enc", "encoder");
     payloader = gst_element_factory_make("rtph264pay", "payloader");
