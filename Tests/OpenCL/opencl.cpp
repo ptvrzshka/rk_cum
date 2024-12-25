@@ -20,7 +20,10 @@ static cl_kernel fs_kernel = NULL;
 static cl_kernel base_proc_kernel = NULL;
 static cl_kernel freq_sep_kernel = NULL;
 static cl_kernel local_contrast_kernel = NULL;
-static cl_kernel freq_sum_kernel = NULL;
+static cl_kernel sharpen_kernel = NULL;
+static cl_kernel bilateral_kernel = NULL;
+
+// static cl_kernel freq_sum_kernel = NULL;
 
 static cl_mem memobj_in = NULL;
 static cl_mem memobj_temp = NULL;
@@ -34,7 +37,7 @@ static cl_mem memobj_statsPrev = NULL;
 static cl_mem memobj_statsCurrent = NULL;
 static cl_mem memobj_rangeCnt = NULL;
 static cl_mem memobj_lowFreq = NULL;
-static cl_mem memobj_lowFreqProcessed = NULL;
+static cl_mem memobj_lowFreqTemp= NULL;
 static cl_mem memobj_highFreq = NULL;
 
 static cl_mem memobj_lcMeansPrev = NULL;
@@ -50,9 +53,12 @@ static int defectsLenth = 0;
 
 static cl_int bytesDivider = 8;
 static cl_float contrast = 1.0;
-static cl_float localContrastLimit = 64.0;
+static cl_float localContrastLimit = 32.0;
 static cl_float localContrastMultiplecative = 1.0;
 static cl_int localContrastDim = 37; // 35
+
+static cl_float sigma_s = 15.0;
+static cl_float sigma_r = 15.0;
 
 static float* K = new float[memLenth];
 static unsigned short* Fs = new unsigned short[memLenth];
@@ -179,7 +185,7 @@ void create_buffers(cl_context context, cl_command_queue command_queue, int memL
     memobj_rangeCnt = clCreateBuffer(context, CL_MEM_READ_WRITE, 65536 * sizeof(int), NULL, &status);
 
     memobj_lowFreq = clCreateBuffer(context, CL_MEM_READ_WRITE, memLenth * sizeof(int), NULL, &status);
-    memobj_lowFreqProcessed = clCreateBuffer(context, CL_MEM_READ_WRITE, memLenth * sizeof(int), NULL, &status);
+    memobj_lowFreqTemp = clCreateBuffer(context, CL_MEM_READ_WRITE, memLenth * sizeof(int), NULL, &status);
     memobj_highFreq = clCreateBuffer(context, CL_MEM_READ_WRITE, memLenth * sizeof(int), NULL, &status);
 
     memobj_lcMeansPrev = clCreateBuffer(context, CL_MEM_READ_ONLY, memLenth * sizeof(float), NULL, &status);
@@ -207,7 +213,9 @@ void init_image_processor()
     base_proc_kernel = create_kernel(program, "calibration_and_agc");  
     freq_sep_kernel = create_kernel(program, "separate_frequences");  
     local_contrast_kernel = create_kernel(program, "local_contrast"); 
-    freq_sum_kernel = create_kernel(program, "summary_frequences");   
+    sharpen_kernel = create_kernel(program, "sharpen");
+    bilateral_kernel = create_kernel(program, "bilateral_filter");
+    // freq_sum_kernel = create_kernel(program, "summary_frequences");   
 
     create_buffers(context, command_queue, memLenth);
 
@@ -237,25 +245,51 @@ void init_image_processor()
     status = clSetKernelArg(local_contrast_kernel, 4, sizeof(cl_mem), (void *)&memobj_lcStdsNew);
     status = clSetKernelArg(local_contrast_kernel, 5, sizeof(cl_float), &localContrastLimit);
     status = clSetKernelArg(local_contrast_kernel, 6, sizeof(cl_float), &localContrastMultiplecative);
-    status = clSetKernelArg(local_contrast_kernel, 7, sizeof(cl_mem), (void *)&memobj_lowFreqProcessed);
+    status = clSetKernelArg(local_contrast_kernel, 7, sizeof(cl_mem), (void *)&memobj_lowFreqTemp);
 
-    status = clSetKernelArg(freq_sum_kernel, 0, sizeof(cl_mem), (void *)&memobj_lowFreq);
-    status = clSetKernelArg(freq_sum_kernel, 1, sizeof(cl_mem), (void *)&memobj_highFreq);
-    status = clSetKernelArg(freq_sum_kernel, 2, sizeof(cl_mem), (void *)&memobj_out);
+    status = clSetKernelArg(sharpen_kernel, 0, sizeof(cl_mem), (void *)&memobj_lowFreqTemp);
+    status = clSetKernelArg(sharpen_kernel, 1, sizeof(cl_mem), (void *)&memobj_lowFreq);
+
+    status = clSetKernelArg(bilateral_kernel, 0, sizeof(cl_mem), (void *)&memobj_lowFreq);
+    status = clSetKernelArg(bilateral_kernel, 1, sizeof(cl_float), &sigma_s);
+    status = clSetKernelArg(bilateral_kernel, 2, sizeof(cl_float), &sigma_r);
+    status = clSetKernelArg(bilateral_kernel, 3, sizeof(cl_mem), (void *)&memobj_out);
+
+    // status = clSetKernelArg(freq_sum_kernel, 0, sizeof(cl_mem), (void *)&memobj_lowFreq);
+    // status = clSetKernelArg(freq_sum_kernel, 1, sizeof(cl_mem), (void *)&memobj_highFreq);
+    // status = clSetKernelArg(freq_sum_kernel, 2, sizeof(cl_mem), (void *)&memobj_out);
 
     restore_fs();
     load_calibration_data();
     load_defects_data();
 }
 
-void exec_summury_frequences_kernel(int* lowFreq, int* highFreq, unsigned char* outputImage) 
-{
-    status = clEnqueueWriteBuffer(command_queue, memobj_lowFreq, CL_TRUE, 0, memLenth * sizeof(int), lowFreq, 0, NULL, NULL);
-    status = clEnqueueWriteBuffer(command_queue, memobj_highFreq, CL_TRUE, 0, memLenth * sizeof(int), highFreq, 0, NULL, NULL);
+// void exec_summury_frequences_kernel(int* lowFreq, int* highFreq, unsigned char* outputImage) 
+// {
+//     status = clEnqueueWriteBuffer(command_queue, memobj_lowFreq, CL_TRUE, 0, memLenth * sizeof(int), lowFreq, 0, NULL, NULL);
+//     status = clEnqueueWriteBuffer(command_queue, memobj_highFreq, CL_TRUE, 0, memLenth * sizeof(int), highFreq, 0, NULL, NULL);
 
-    status = clEnqueueNDRangeKernel(command_queue, freq_sum_kernel, 1, NULL, global_work_size, NULL, 0, NULL, NULL);
+//     status = clEnqueueNDRangeKernel(command_queue, freq_sum_kernel, 1, NULL, global_work_size, NULL, 0, NULL, NULL);
+
+//     status = clEnqueueReadBuffer(command_queue, memobj_out, CL_TRUE, 0, memLenth * sizeof(unsigned char), outputImage, 0, NULL, NULL);
+// }
+
+void exec_bilateral_kernel(int* inputImage, unsigned char* outputImage) 
+{
+    status = clEnqueueWriteBuffer(command_queue, memobj_lowFreq, CL_TRUE, 0, memLenth * sizeof(int), inputImage, 0, NULL, NULL);
+
+    status = clEnqueueNDRangeKernel(command_queue, bilateral_kernel, 1, NULL, global_work_size, NULL, 0, NULL, NULL);
 
     status = clEnqueueReadBuffer(command_queue, memobj_out, CL_TRUE, 0, memLenth * sizeof(unsigned char), outputImage, 0, NULL, NULL);
+}
+
+void exec_sharpen_kernel(int* inputImage, int* outputImage)  
+{
+    status = clEnqueueWriteBuffer(command_queue, memobj_lowFreqTemp, CL_TRUE, 0, memLenth * sizeof(int), inputImage, 0, NULL, NULL);
+
+    status = clEnqueueNDRangeKernel(command_queue, sharpen_kernel, 1, NULL, global_work_size, NULL, 0, NULL, NULL);
+
+    status = clEnqueueReadBuffer(command_queue, memobj_lowFreq, CL_TRUE, 0, memLenth * sizeof(int), outputImage, 0, NULL, NULL);
 }
 
 void exec_local_contrast_kernel(int* inputImage, int* outputImage) 
@@ -264,10 +298,9 @@ void exec_local_contrast_kernel(int* inputImage, int* outputImage)
     status = clEnqueueWriteBuffer(command_queue, memobj_lcMeansPrev, CL_TRUE, 0, memLenth * sizeof(float), lcMeansNew, 0, NULL, NULL);
     status = clEnqueueWriteBuffer(command_queue, memobj_lcStdsPrev, CL_TRUE, 0, memLenth * sizeof(float), lcStdsNew, 0, NULL, NULL);
 
-    // status = clEnqueueNDRangeKernel(command_queue, local_contrast_kernel, 2, NULL, global_work_size_1, local_work_size_1, 0, NULL, NULL);
     status = clEnqueueNDRangeKernel(command_queue, local_contrast_kernel, 1, NULL, global_work_size, NULL, 0, NULL, NULL);
 
-    status = clEnqueueReadBuffer(command_queue, memobj_lowFreqProcessed, CL_TRUE, 0, memLenth * sizeof(int), outputImage, 0, NULL, NULL);
+    status = clEnqueueReadBuffer(command_queue, memobj_lowFreqTemp, CL_TRUE, 0, memLenth * sizeof(int), outputImage, 0, NULL, NULL);
     status = clEnqueueReadBuffer(command_queue, memobj_lcMeansNew, CL_TRUE, 0, memLenth * sizeof(float), lcMeansNew, 0, NULL, NULL);
     status = clEnqueueReadBuffer(command_queue, memobj_lcStdsNew, CL_TRUE, 0, memLenth * sizeof(float), lcStdsNew, 0, NULL, NULL);
 }
@@ -288,8 +321,8 @@ void exec_separate_frequences(unsigned short* inputImage, int* lowFreq, int* hig
 }
 
 static const float p_agc_black = 0.001;
-static const float p_agc_white = 0.005;
-static const float agc_limit = 8.0; // 8 for local
+static const float p_agc_white = 0.001;
+static float agc_limit = 12.0; // 8 for local
 
 void exec_firts_kernel(unsigned short* inputImage, unsigned short* outputImage) 
 {
@@ -378,24 +411,34 @@ void calc_fs(unsigned short* inputImage, int iter, bool start)
     status = clEnqueueReadBuffer(command_queue, memobj_fs, CL_TRUE, 0, memLenth * sizeof(unsigned short), Fs, 0, NULL, NULL);
 }
 
-//cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE();
-cv::Mat sharpKernel = (cv::Mat_<int>(3, 3) <<
-                                    0, -1, 0,
-                                    -1, 5, -1,
-                                    0, -1, 0);
-int diameter = 9;         
-double sigmaColor = 15.0;   
-double sigmaSpace = 18.0;   
-cv::Mat bilateralImage;
 void process_image(unsigned short* inputImage, unsigned char* outputImage) 
 {    
     exec_firts_kernel(inputImage, tempImage);
     exec_separate_frequences(tempImage, lowFreq, highFreq);
     exec_local_contrast_kernel(lowFreq, lowFreq);
-    exec_summury_frequences_kernel(lowFreq, highFreq, outputImage);
+    exec_sharpen_kernel(lowFreq, lowFreq);
+    exec_bilateral_kernel(lowFreq, outputImage);
+}
 
-    cv::Mat image(512, 640, CV_8UC1, outputImage);
-    cv::filter2D(image, image, CV_8UC1, sharpKernel);
-    // cv::bilateralFilter(image, bilateralImage, diameter, sigmaColor, sigmaSpace);
-    memcpy(outputImage, image.data, memLenth);
+void global_contrast_changed(unsigned char value) 
+{
+    agc_limit = (float)value;
+}
+
+void local_contrast_changed(unsigned char value) 
+{
+    localContrastMultiplecative = (cl_float)value / 100.0;
+    status = clSetKernelArg(local_contrast_kernel, 6, sizeof(cl_float), &localContrastMultiplecative);
+}
+
+void denoise_1_changed(unsigned char value) 
+{
+    sigma_s = (cl_float)value;
+    status = clSetKernelArg(bilateral_kernel, 1, sizeof(cl_float), &sigma_s);
+}
+
+void denoise_2_changed(unsigned char value) 
+{
+    sigma_r = (cl_float)value;
+    status = clSetKernelArg(bilateral_kernel, 2, sizeof(cl_float), &sigma_r);
 }

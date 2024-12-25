@@ -2,6 +2,7 @@
 
 #include "../OpenCL/opencl.cpp"
 #include "../Ethernet/ethernet.cpp"
+#include "../Ethernet/tcp_proxy.cpp"
 
 #include <mutex>
 #include <condition_variable>
@@ -78,7 +79,6 @@ void ProcessLoop()
 		}
 		process_image(frame, frameOut);
 		procQueue.push(frameOut);
-		// visCond.notify_one();
 
 		framesCnt += 1;
 		if (framesCnt == 30)
@@ -89,6 +89,42 @@ void ProcessLoop()
 			startTime = std::chrono::system_clock::now();
 		}
 	}
+}
+
+void ProxyLoop() 
+{
+	while (true)
+	{
+		unsigned char* data = GetDataFromProxyServer();
+		if (data == nullptr)
+			continue;
+		if (data[0] == 0) 
+		{
+			calib_cnt = 1;
+			continue;
+		}
+		if (data[0] == 1) 
+		{
+			global_contrast_changed(data[1]);
+			continue;
+		}
+		if (data[0] == 2) 
+		{
+			local_contrast_changed(data[1]);
+			continue;
+		}
+		if (data[0] == 3) 
+		{
+			denoise_1_changed(data[1]);
+			continue;
+		}
+		if (data[0] == 4) 
+		{
+			denoise_2_changed(data[1]);
+			continue;
+		}
+		SendData(data, 6);
+	}	
 }
 
 // Глобальная структура данных
@@ -110,17 +146,20 @@ static void need_data(GstElement * appsrc, guint unused, MyContext * ctx) {
 	// 	return;
 	// }
 
+	if (procQueue.empty())
+		return;
+	
+	unsigned char* frame = procQueue.front();
+
 	guint size;
 	GstFlowReturn ret;
-
-	unsigned char* frame = procQueue.front();
 
 	ctx->buffer = gst_buffer_new_allocate(NULL, WIDTH*HEIGHT, NULL);
 	GstMapInfo map;
     gst_buffer_map(ctx->buffer, &map, GST_MAP_WRITE);
     memcpy(map.data, frame, WIDTH * HEIGHT);
     gst_buffer_unmap(ctx->buffer, &map);
-
+		
 	/* increment the timestamp every 1/2 second */
 	// GST_BUFFER_PTS(ctx->buffer) = ctx->timestamp;
     // GST_BUFFER_DTS(ctx->buffer) = ctx->timestamp;
@@ -136,8 +175,6 @@ static void need_data(GstElement * appsrc, guint unused, MyContext * ctx) {
 static void media_configure (GstRTSPMediaFactory * factory, GstRTSPMedia * media,
     gpointer user_data)
 {
-	calib_cnt = 1;
-
 	GstElement *element, *appsrc;
 	MyContext *ctx;
 
@@ -150,9 +187,9 @@ static void media_configure (GstRTSPMediaFactory * factory, GstRTSPMedia * media
 		 gst_caps_new_simple(
 			"video/x-raw",
 			"format", G_TYPE_STRING, "GRAY8",
-			"width", G_TYPE_INT, 640,                      // Øèðèíà âèäåî
-			"height", G_TYPE_INT, 512,                     // Âûñîòà âèäåî
-			"framerate", GST_TYPE_FRACTION, frameRate, 1,         // ×àñòîòà êàäðîâ (30 FPS)
+			"width", G_TYPE_INT, 640,                      
+			"height", G_TYPE_INT, 512,                    
+			"framerate", GST_TYPE_FRACTION, frameRate, 1,      
 			NULL), NULL);
 
 	ctx = g_new0 (MyContext, 1);
@@ -170,11 +207,13 @@ int main(int argc, char *argv[]) {
 
 	InitializeSocket(new int[4] { 192, 168, 0, 1}, 50016);
 	InitializeCamera(new int[4] { 192, 168, 0, 15}, 50000);
+	InitializeProxyServer(50032);
 
 	init_image_processor();
 
 	std::thread readerThread(&ReaderLoop);
 	std::thread processorThread(&ProcessLoop);
+	std::thread proxyThread(&ProxyLoop);
 
 	GMainLoop *loop;
 	GstRTSPServer *server;
@@ -186,7 +225,7 @@ int main(int argc, char *argv[]) {
 	loop = g_main_loop_new (NULL, FALSE);
 
 	server = gst_rtsp_server_new ();
-    gst_rtsp_server_set_address(server, "192.168.88.26"); // Set the server IP
+    gst_rtsp_server_set_address(server, "192.168.88.21"); // Set the server IP
 
 	mounts = gst_rtsp_server_get_mount_points (server);
 

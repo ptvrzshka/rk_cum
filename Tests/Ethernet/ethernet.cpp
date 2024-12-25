@@ -37,8 +37,8 @@ static int handle;
 static sockaddr_in address;
 static sockaddr_in camera;
 
-static const int WIDTH = 640;
-static const int HEIGHT = 512;
+extern const int WIDTH = 640;
+extern const int HEIGHT = 512;
 
 static int rowSize = sizeof(unsigned short) * 642;
 #if PLATFORM == PLATFORM_WINDOWS
@@ -104,11 +104,9 @@ void CloseSocket()
 #endif
 }
 
-int SendData(int* message, int size)
+int SendData(unsigned char* message, int size)
 {
-	char buffer[size];
-	for (int i = 0; i < size; ++i) buffer[i] = message[i];
-	int bytesOut = sendto(handle, buffer, size, 0, (sockaddr*)&camera, sizeof(sockaddr));
+	int bytesOut = sendto(handle, message, size, 0, (sockaddr*)&camera, sizeof(sockaddr));
 #if PLATFORM == PLATFORM_WINDOWS
 	Sleep(1);
 #else
@@ -120,28 +118,28 @@ int SendData(int* message, int size)
 
 void SendFrequence(int value) 
 {
-	int data[6] = { 0x05, 0x5C, 0x00, 0x00, 0x00, 0x00 };
-	int lines = (int)(1000000.0 * baseFreq / (float)value / lineWidth);
-	data[4] = 0x0C;
-	data[5] = (lines / 256) | 0x80; // 0x80 - отключить автомат, 0x00 - включить автомат
-	SendData(data, 6);
-	data[4] = 0x0D;
-	data[5] = lines % 256;
-	SendData(data, 6);
+	// int data[6] = { 0x05, 0x5C, 0x00, 0x00, 0x00, 0x00 };
+	// int lines = (int)(1000000.0 * baseFreq / (float)value / lineWidth);
+	// data[4] = 0x0C;
+	// data[5] = (lines / 256) | 0x80; // 0x80 - отключить автомат, 0x00 - включить автомат
+	// SendData(data, 6);
+	// data[4] = 0x0D;
+	// data[5] = lines % 256;
+	// SendData(data, 6);
 }
 
 
 void SendIntTime(int value)
 {
-	int data[6] = { 0x05, 0x5C, 0x00, 0x00, 0x00, 0x00 };
-	int lines = (int)(1000000.0 * baseFreq / (float)value / lineWidth);
-	int outTime = (int)(lines - baseFreq * (float)value / lineWidth);
-	data[4] = 0x04;
-	data[5] = (outTime / 256) | 0x80; // 0x80 - отключить автомат, 0x00 - включить автомат
-	SendData(data, 6);
-	data[4] = 0x05;
-	data[5] = outTime % 256;
-	SendData(data, 6);
+	// int data[6] = { 0x05, 0x5C, 0x00, 0x00, 0x00, 0x00 };
+	// int lines = (int)(1000000.0 * baseFreq / (float)value / lineWidth);
+	// int outTime = (int)(lines - baseFreq * (float)value / lineWidth);
+	// data[4] = 0x04;
+	// data[5] = (outTime / 256) | 0x80; // 0x80 - отключить автомат, 0x00 - включить автомат
+	// SendData(data, 6);
+	// data[4] = 0x05;
+	// data[5] = outTime % 256;
+	// SendData(data, 6);
 }
 
 
