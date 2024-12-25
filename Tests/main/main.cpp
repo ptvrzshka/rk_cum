@@ -17,7 +17,10 @@
 #include <rk_type.h>
 
 #include <gst/gst.h>
-#include <gst/rtsp-server/rtsp-server.h>
+#include <gst/app/gstappsrc.h>  
+
+#define RTP_PORT 5004
+#define HOST "192.168.88.21"
 
 std::mutex procMtx;
 std::condition_variable procCond;
@@ -172,35 +175,68 @@ static void need_data(GstElement * appsrc, guint unused, MyContext * ctx) {
 	gst_buffer_unref (ctx->buffer);
 }
 
-static void media_configure (GstRTSPMediaFactory * factory, GstRTSPMedia * media,
-    gpointer user_data)
-{
-	GstElement *element, *appsrc;
-	MyContext *ctx;
 
-	element = gst_rtsp_media_get_element (media);
+void push_data_to_appsrc(GstAppSrc * appsrc, guint unused)
+ {
 
-	appsrc = gst_bin_get_by_name_recurse_up (GST_BIN (element), "mysrc");
+	std::cout << "kek" << std::endl;
+	 
+    // if (data->push_in_progress) 
+    //     return TRUE;
 
-	gst_util_set_object_arg (G_OBJECT (appsrc), "format", "time");
-	g_object_set (G_OBJECT (appsrc), "caps",
-		 gst_caps_new_simple(
-			"video/x-raw",
-			"format", G_TYPE_STRING, "GRAY8",
-			"width", G_TYPE_INT, 640,                      
-			"height", G_TYPE_INT, 512,                    
-			"framerate", GST_TYPE_FRACTION, frameRate, 1,      
-			NULL), NULL);
+	if (procQueue.empty())
+		return;
 
-	ctx = g_new0 (MyContext, 1);
-	ctx->buffer = nullptr;
-	ctx->timestamp = 0;
-	g_object_set_data_full (G_OBJECT (media), "my-extra-data", ctx,
-		(GDestroyNotify) g_free);
+	GstFlowReturn ret;
+	
+	unsigned char* frame = procQueue.front();
 
-	g_signal_connect (appsrc, "need-data", (GCallback) need_data, ctx);
-	gst_object_unref (appsrc);
-	gst_object_unref (element);
+    GstBuffer *buffer = gst_buffer_new_allocate(nullptr, WIDTH * HEIGHT, nullptr);
+	GstMapInfo map;
+    gst_buffer_map(buffer, &map, GST_MAP_WRITE);
+    memcpy(map.data, frame, WIDTH * HEIGHT);
+    gst_buffer_unmap(buffer, &map);
+
+    ret = gst_app_src_push_buffer(appsrc, buffer);
+
+    if (ret != GST_FLOW_OK) 
+	{
+        std::cerr << "Error pushing buffer to appsrc." << std::endl;
+        return;
+    }
+
+	// g_signal_emit_by_name(appsrc, "push-buffer", buffer, &ret);
+
+	gst_buffer_unref(buffer);
+
+    return;
+}
+
+GstElement* create_udp_pipeline(const char* host, guint port, GstElement *appsrc) {
+    GstElement *pipeline, *convert, *encoder, *payloader, *sink;
+
+    // Ñîçäàåì ýëåìåíòû ïàéïëàéíà
+    pipeline = gst_pipeline_new("udp-live-stream");
+    convert = gst_element_factory_make("videoconvert", "convert");
+    encoder = gst_element_factory_make("x264enc", "encoder");
+    payloader = gst_element_factory_make("rtph264pay", "payloader");
+    sink = gst_element_factory_make("udpsink", "sink");
+
+    if (!pipeline || !convert || !encoder || !payloader || !sink) {
+        std::cerr << "Failed to create one or more elements." << std::endl;
+        return nullptr;
+    }
+
+    g_object_set(sink, "host", host, "port", port, nullptr);
+
+    gst_bin_add_many(GST_BIN(pipeline), appsrc, convert, encoder, payloader, sink, nullptr);
+
+    if (!gst_element_link_many(appsrc, convert, encoder, payloader, sink, nullptr)) {
+        std::cerr << "Failed to link elements." << std::endl;
+        return nullptr;
+    }
+
+    return pipeline;
 }
 
 int main(int argc, char *argv[]) {
@@ -215,35 +251,39 @@ int main(int argc, char *argv[]) {
 	std::thread processorThread(&ProcessLoop);
 	std::thread proxyThread(&ProxyLoop);
 
-	GMainLoop *loop;
-	GstRTSPServer *server;
-	GstRTSPMountPoints *mounts;
-	GstRTSPMediaFactory *factory;
+    gst_init(&argc, &argv);
 
-	gst_init (&argc, &argv);
+    GstElement *appsrc = gst_element_factory_make("appsrc", "source");
+    if (!appsrc) {
+        std::cerr << "Failed to create appsrc element." << std::endl;
+        return -1;
+    }
 
-	loop = g_main_loop_new (NULL, FALSE);
+    g_object_set(GST_OBJECT(appsrc), "is-live", TRUE, "format", GST_FORMAT_TIME, nullptr);
 
-	server = gst_rtsp_server_new ();
-    gst_rtsp_server_set_address(server, "192.168.88.21"); // Set the server IP
+    GstElement *pipeline = create_udp_pipeline(HOST, RTP_PORT, appsrc);
+    if (!pipeline) {
+        std::cerr << "Failed to create UDP pipeline." << std::endl;
+        return -1;
+    }
 
-	mounts = gst_rtsp_server_get_mount_points (server);
+    g_signal_connect(appsrc, "need-data", G_CALLBACK(push_data_to_appsrc), appsrc);
 
-	factory = gst_rtsp_media_factory_new ();
-	gst_rtsp_media_factory_set_launch (factory,
-		"( appsrc name=mysrc max-latency=0 max-lateness=0 is-live=true buffer-mode=none ! videoconvert ! mpph264enc ! rtph264pay name=pay0 pt=96 )");
+    GstStateChangeReturn ret = gst_element_set_state(pipeline, GST_STATE_PLAYING);
+    if (ret == GST_STATE_CHANGE_FAILURE) {
+        std::cerr << "Failed to set pipeline to PLAYING state." << std::endl;
+        gst_object_unref(pipeline);
+        return -1;
+    }
 
-	g_signal_connect (factory, "media-configure", (GCallback) media_configure,
-		NULL);
+    std::cout << "UDP Live streaming started..." << std::endl;
 
-	gst_rtsp_mount_points_add_factory (mounts, "/test", factory);
+    GMainLoop *loop = g_main_loop_new(nullptr, FALSE);
+    g_main_loop_run(loop);
 
-	g_object_unref (mounts);
+    gst_element_set_state(pipeline, GST_STATE_NULL);
+    gst_object_unref(pipeline);
+    g_main_loop_unref(loop);
 
-	gst_rtsp_server_attach (server, NULL);
-
-	g_print ("stream ready at rtsp://192.168.88.26:8554/test\n");
-	g_main_loop_run (loop);
-
-	return 0;
+    return 0;
 }
