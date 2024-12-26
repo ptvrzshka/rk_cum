@@ -83,14 +83,14 @@ void ProcessLoop()
 		process_image(frame, frameOut);
 		procQueue.push(frameOut);
 
-		framesCnt += 1;
-		if (framesCnt == 30)
-		{
-			endTime = std::chrono::system_clock::now();
-			std::cout << "Fps: " << (float)framesCnt / std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count() * 1000.0 << " Queue: " << procQueue.size() << std::endl;
-			framesCnt = 0;
-			startTime = std::chrono::system_clock::now();
-		}
+		// framesCnt += 1;
+		// if (framesCnt == 30)
+		// {
+		// 	endTime = std::chrono::system_clock::now();
+		// 	std::cout << "Fps: " << (float)framesCnt / std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count() * 1000.0 << " Queue: " << procQueue.size() << std::endl;
+		// 	framesCnt = 0;
+		// 	startTime = std::chrono::system_clock::now();
+		// }
 	}
 }
 
@@ -197,7 +197,14 @@ void push_data_to_appsrc(GstElement* appsrc, guint unused)
 	g_signal_emit_by_name(appsrc, "push-buffer", buffer, &ret);
 	gst_buffer_unref(buffer);
 
-    return;
+	framesCnt += 1;
+	if (framesCnt == 30)
+	{
+		endTime = std::chrono::system_clock::now();
+		std::cout << "Fps: " << (float)framesCnt / std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count() * 1000.0 << " Queue: " << procQueue.size() << std::endl;
+		framesCnt = 0;
+		startTime = std::chrono::system_clock::now();
+	}
 }
 
 GstElement* create_udp_pipeline(const char* host, guint port, GstElement *appsrc) {
@@ -255,6 +262,15 @@ int main(int argc, char *argv[]) {
   	sink = gst_element_factory_make ("udpsink", "sink");
 
 	pipeline = gst_pipeline_new ("udp-pipeline");
+
+	g_object_set (G_OBJECT (source), "caps",
+		gst_caps_new_simple(
+		"video/x-raw",
+		"format", G_TYPE_STRING, "GRAY8",
+		"width", G_TYPE_INT, 640,                      
+		"height", G_TYPE_INT, 512,                    
+		"framerate", GST_TYPE_FRACTION, frameRate, 1,      
+		NULL), NULL);
 
 	gst_bin_add_many (GST_BIN (pipeline), source, sink, convert, encoder, payloader, NULL);
 	if (gst_element_link (source, sink) != TRUE) 
