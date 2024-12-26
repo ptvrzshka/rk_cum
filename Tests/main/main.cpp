@@ -211,6 +211,9 @@ int main(int argc, char *argv[]) {
 
 	init_image_processor();
 
+	// SendData(new unsigned char[6] {0x5, 0x5c, 0x00, 0x00, 0x37, 0x1}, 6);
+	// SendData(new unsigned char[6] {0x5, 0x5c, 0x00, 0x00, 0xe, 0x80}, 6);
+
 	std::thread readerThread(&ReaderLoop);
 	std::thread processorThread(&ProcessLoop);
 	std::thread proxyThread(&ProxyLoop);
