@@ -179,10 +179,10 @@ static void need_data(GstElement * appsrc, guint unused, MyContext * ctx) {
 void push_data_to_appsrc(GstElement* appsrc, guint unused)
  {
 
-	std::cout << "kek" << std::endl;
-
 	if (procQueue.empty())
 		return;
+
+	// std::cout << "kek" << std::endl;
 
 	GstFlowReturn ret;
 	
@@ -243,32 +243,39 @@ int main(int argc, char *argv[]) {
 	// SendData(new unsigned char[6] {0x5, 0x5c, 0x00, 0x00, 0x37, 0x1}, 6);
 	// SendData(new unsigned char[6] {0x5, 0x5c, 0x00, 0x00, 0xe, 0x80}, 6);
 
+	GstElement *pipeline, *source, *sink, *convert, *encoder, *payloader;
+	GstStateChangeReturn ret;
+
     gst_init(&argc, &argv);
 
-    GstElement *appsrc = gst_element_factory_make("appsrc", "source");
-    if (!appsrc) {
-        std::cerr << "Failed to create appsrc element." << std::endl;
-        return -1;
-    }
+	source = gst_element_factory_make ("appsrc", "source");
+	convert = gst_element_factory_make ("videoconvert", "convert");
+    encoder = gst_element_factory_make ("x264enc", "encoder");
+    payloader = gst_element_factory_make ("rtph264pay", "payloader");
+  	sink = gst_element_factory_make ("udpsink", "sink");
 
-    g_object_set(GST_OBJECT(appsrc), "is-live", TRUE, "format", GST_FORMAT_TIME, nullptr);
+	pipeline = gst_pipeline_new ("udp-pipeline");
 
-    GstElement *pipeline = create_udp_pipeline(HOST, RTP_PORT, appsrc);
-    if (!pipeline) {
-        std::cerr << "Failed to create UDP pipeline." << std::endl;
-        return -1;
-    }
+	gst_bin_add_many (GST_BIN (pipeline), source, sink, convert, encoder, payloader, NULL);
+	if (gst_element_link (source, sink) != TRUE) 
+	{
+		g_printerr ("Elements could not be linked.\n");
+		gst_object_unref (pipeline);
+		return -1;
+	}
 
-    g_signal_connect(appsrc, "need-data", G_CALLBACK(push_data_to_appsrc), appsrc);
+	// g_object_set (source, "pattern", 0, NULL);
 
-    GstStateChangeReturn ret = gst_element_set_state(pipeline, GST_STATE_PLAYING);
-    if (ret == GST_STATE_CHANGE_FAILURE) {
-        std::cerr << "Failed to set pipeline to PLAYING state." << std::endl;
-        gst_object_unref(pipeline);
-        return -1;
-    }
+	ret = gst_element_set_state (pipeline, GST_STATE_PLAYING);
+	if (ret == GST_STATE_CHANGE_FAILURE) {
+		g_printerr ("Unable to set the pipeline to the playing state.\n");
+		gst_object_unref (pipeline);
+		return -1;
+	}
 
-    std::cout << "UDP Live streaming started..." << std::endl;
+	g_signal_connect(source, "need-data", G_CALLBACK(push_data_to_appsrc), source);
+
+	std::cout << "UDP Live streaming started..." << std::endl;
 
     GMainLoop *loop = g_main_loop_new(nullptr, FALSE);
     g_main_loop_run(loop);
@@ -276,6 +283,39 @@ int main(int argc, char *argv[]) {
     gst_element_set_state(pipeline, GST_STATE_NULL);
     gst_object_unref(pipeline);
     g_main_loop_unref(loop);
+
+
+    // GstElement *appsrc = gst_element_factory_make("appsrc", "source");
+    // if (!appsrc) {
+    //     std::cerr << "Failed to create appsrc element." << std::endl;
+    //     return -1;
+    // }
+
+    // g_object_set(GST_OBJECT(appsrc), "is-live", TRUE, "format", GST_FORMAT_TIME, nullptr);
+
+    // GstElement *pipeline = create_udp_pipeline(HOST, RTP_PORT, appsrc);
+    // if (!pipeline) {
+    //     std::cerr << "Failed to create UDP pipeline." << std::endl;
+    //     return -1;
+    // }
+
+    // g_signal_connect(appsrc, "need-data", G_CALLBACK(push_data_to_appsrc), appsrc);
+
+    // GstStateChangeReturn ret = gst_element_set_state(pipeline, GST_STATE_PLAYING);
+    // if (ret == GST_STATE_CHANGE_FAILURE) {
+    //     std::cerr << "Failed to set pipeline to PLAYING state." << std::endl;
+    //     gst_object_unref(pipeline);
+    //     return -1;
+    // }
+
+    // std::cout << "UDP Live streaming started..." << std::endl;
+
+    // GMainLoop *loop = g_main_loop_new(nullptr, FALSE);
+    // g_main_loop_run(loop);
+
+    // gst_element_set_state(pipeline, GST_STATE_NULL);
+    // gst_object_unref(pipeline);
+    // g_main_loop_unref(loop);
 
     return 0;
 }
