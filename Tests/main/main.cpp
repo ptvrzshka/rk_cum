@@ -203,7 +203,7 @@ void push_data_to_appsrc(GstElement* appsrc, guint unused)
 GstElement* create_udp_pipeline(const char* host, guint port, GstElement *appsrc) {
     GstElement *pipeline, *convert, *encoder, *payloader, *sink;
 
-    pipeline = gst_pipeline_new("rtp-live-stream");
+    pipeline = gst_pipeline_new("rtp-pipeline");
     convert = gst_element_factory_make("videoconvert", "convert");
     encoder = gst_element_factory_make("x264enc", "encoder");
     payloader = gst_element_factory_make("rtph264pay", "payloader");
@@ -222,6 +222,8 @@ GstElement* create_udp_pipeline(const char* host, guint port, GstElement *appsrc
         std::cerr << "Failed to link elements." << std::endl;
         return nullptr;
     }
+	
+	gst_element_set_state(pipeline, GST_STATE_PLAYING);
 
     return pipeline;
 }
@@ -237,6 +239,9 @@ int main(int argc, char *argv[]) {
 	std::thread readerThread(&ReaderLoop);
 	std::thread processorThread(&ProcessLoop);
 	std::thread proxyThread(&ProxyLoop);
+
+	// SendData(new unsigned char[6] {0x05, 0x5c, 0x00, 0x00, 0x37, 0x01}, 6);
+	// SendData(new unsigned char[6] {0x05, 0x5c, 0x00, 0x00, 0xe0, 0x80}, 6);
 
     gst_init(&argc, &argv);
 
