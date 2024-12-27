@@ -83,14 +83,14 @@ void ProcessLoop()
 		process_image(frame, frameOut);
 		procQueue.push(frameOut);
 
-		// framesCnt += 1;
-		// if (framesCnt == 30)
-		// {
-		// 	endTime = std::chrono::system_clock::now();
-		// 	std::cout << "Fps: " << (float)framesCnt / std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count() * 1000.0 << " Queue: " << procQueue.size() << std::endl;
-		// 	framesCnt = 0;
-		// 	startTime = std::chrono::system_clock::now();
-		// }
+		framesCnt += 1;
+		if (framesCnt == 30)
+		{
+			endTime = std::chrono::system_clock::now();
+			std::cout << "Fps: " << (float)framesCnt / std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count() * 1000.0 << " Queue: " << procQueue.size() << std::endl;
+			framesCnt = 0;
+			startTime = std::chrono::system_clock::now();
+		}
 	}
 }
 
@@ -172,14 +172,14 @@ void need_data(GstElement* appsrc, guint unused, StreamContext* ctx)
 
 	gst_buffer_unref(buffer);
 
-	framesCnt += 1;
-	if (framesCnt == 30)
-	{
-		endTime = std::chrono::system_clock::now();
-		std::cout << "Fps: " << (float)framesCnt / std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count() * 1000.0 << " Queue: " << procQueue.size() << std::endl;
-		framesCnt = 0;
-		startTime = std::chrono::system_clock::now();
-	}
+	// framesCnt += 1;
+	// if (framesCnt == 30)
+	// {
+	// 	endTime = std::chrono::system_clock::now();
+	// 	std::cout << "Fps: " << (float)framesCnt / std::chrono::duration_cast<std::chrono::milliseconds>(endTime - startTime).count() * 1000.0 << " Queue: " << procQueue.size() << std::endl;
+	// 	framesCnt = 0;
+	// 	startTime = std::chrono::system_clock::now();
+	// }
 }
 
 
@@ -200,16 +200,28 @@ int main(int argc, char *argv[]) {
 
     gst_init(&argc, &argv);
 
-	GstElement *pipeline = gst_parse_launch("appsrc name=mysrc ! videoconvert ! x264enc ! rtph264pay ! udpsink host=127.0.0.1 port=5004", NULL);
+	GstElement *pipeline = gst_parse_launch("appsrc name=mysrc max-latency=0 max-lateness=0 is-live=true buffer-mode=none ! videoconvert ! mpph264enc ! rtph264pay name=pay0 pt=96 mtu=1300 ! udpsink host=192.168.88.21 port=5000", NULL);
 	GstElement *appsrc = gst_bin_get_by_name(GST_BIN(pipeline), "mysrc");
 
 	// GstElement *pipeline = gst_parse_launch("appsrc name=mysrc ! videoconvert ! x264enc ! webmmux ! shout2send ip=127.0.0.1 port=5004 password=hackme mount=/test.webm", NULL);
     // GstElement *appsrc = gst_bin_get_by_name(GST_BIN(pipeline), "mysrc");
 
+	// gst_util_set_object_arg(G_OBJECT(appsrc), "format", "time");
+	// g_object_set (G_OBJECT (appsrc), "caps",
+	// 	gst_caps_new_simple(
+	// 	"video/x-raw",
+	// 	"format", G_TYPE_STRING, "GRAY8",
+	// 	"width", G_TYPE_INT, 640,                      
+	// 	"height", G_TYPE_INT, 512,                    
+	// 	"framerate", GST_TYPE_FRACTION, frameRate, 1,      
+	// 	NULL), NULL);
+
+    // caps =application/x-rtp, media=(string)video, encoding-name=(string)H264, format=GRAY8, framerate=(fraction)50/1, payload=(int)96
+
 	gst_util_set_object_arg(G_OBJECT(appsrc), "format", "time");
 	g_object_set (G_OBJECT (appsrc), "caps",
 		gst_caps_new_simple(
-		"video/x-raw",
+	  	"video/x-raw",
 		"format", G_TYPE_STRING, "GRAY8",
 		"width", G_TYPE_INT, 640,                      
 		"height", G_TYPE_INT, 512,                    
