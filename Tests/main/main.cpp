@@ -200,33 +200,43 @@ int main(int argc, char *argv[]) {
 
     gst_init(&argc, &argv);
 
-	GstElement *pipeline = gst_parse_launch("appsrc name=mysrc max-latency=0 max-lateness=0 is-live=true buffer-mode=none ! videoconvert ! mpph264enc ! rtph264pay name=pay0 pt=96 mtu=1300 ! udpsink host=192.168.88.21 port=5000", NULL);
+	GstElement *pipeline = gst_parse_launch("appsrc name=mysrc max-latency=0 max-lateness=0 is-live=true buffer-mode=none ! \
+	videoconvert ! mpph264enc ! rtph264pay ! \
+	udpsink host=192.168.88.21 port=5000", NULL);
 	GstElement *appsrc = gst_bin_get_by_name(GST_BIN(pipeline), "mysrc");
-
-	// GstElement *pipeline = gst_parse_launch("appsrc name=mysrc ! videoconvert ! x264enc ! webmmux ! shout2send ip=127.0.0.1 port=5004 password=hackme mount=/test.webm", NULL);
-    // GstElement *appsrc = gst_bin_get_by_name(GST_BIN(pipeline), "mysrc");
-
-	// gst_util_set_object_arg(G_OBJECT(appsrc), "format", "time");
-	// g_object_set (G_OBJECT (appsrc), "caps",
-	// 	gst_caps_new_simple(
-	// 	"video/x-raw",
-	// 	"format", G_TYPE_STRING, "GRAY8",
-	// 	"width", G_TYPE_INT, 640,                      
-	// 	"height", G_TYPE_INT, 512,                    
-	// 	"framerate", GST_TYPE_FRACTION, frameRate, 1,      
-	// 	NULL), NULL);
-
-    // caps =application/x-rtp, media=(string)video, encoding-name=(string)H264, format=GRAY8, framerate=(fraction)50/1, payload=(int)96
 
 	gst_util_set_object_arg(G_OBJECT(appsrc), "format", "time");
 	g_object_set (G_OBJECT (appsrc), "caps",
 		gst_caps_new_simple(
-	  	"video/x-raw",
+		"video/x-raw",
 		"format", G_TYPE_STRING, "GRAY8",
 		"width", G_TYPE_INT, 640,                      
 		"height", G_TYPE_INT, 512,                    
 		"framerate", GST_TYPE_FRACTION, frameRate, 1,      
 		NULL), NULL);
+
+	// gst_util_set_object_arg(G_OBJECT(appsrc), "format", "time");
+	// g_object_set (G_OBJECT (appsrc), "caps",
+	// 	gst_caps_new_simple(
+	//   	"application/x-rtp",
+	// 	"media", G_TYPE_STRING, "video",
+	// 	"encoding-name", G_TYPE_STRING, "H264",
+	// 	"payload", G_TYPE_INT, 96,                      
+	// 	// "format", G_TYPE_STRING, "GRAY8",
+	// 	// "width", G_TYPE_INT, 640,                      
+	// 	// "height", G_TYPE_INT, 512,                    
+	// 	// "framerate", GST_TYPE_FRACTION, frameRate, 1,      
+	// 	NULL), NULL);
+
+	// g_object_set(G_OBJECT(udpsink), "host", "192.168.88.21", "port", 5004, NULL);
+
+	// gst_bin_add_many(GST_BIN(pipeline), appsrc, encoder, payloader, udpsink, NULL);
+    // if (!gst_element_link_many(appsrc, encoder, payloader, udpsink, NULL)) 
+	// {
+    //     return -1;
+    // }
+
+	// g_object_set(G_OBJECT(appsrc), "stream-type", 0, "format", GST_FORMAT_TIME, NULL);
 
 	GMainLoop *loop = g_main_loop_new(NULL, FALSE);
     StreamContext *ctx = stream_context_new();
@@ -235,6 +245,8 @@ int main(int argc, char *argv[]) {
     // g_signal_connect(appsrc, "enough-data", G_CALLBACK(enough_data), ctx);
  
     gst_element_set_state(pipeline, GST_STATE_PLAYING);
+
+	g_object_set(G_OBJECT(appsrc), "stream-type", 0, "format", GST_FORMAT_TIME, NULL);
  
     g_main_loop_run(loop);
  
