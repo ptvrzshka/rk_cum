@@ -204,8 +204,8 @@ int main(int argc, char *argv[]) {
 
 	source = gst_element_factory_make ("appsrc", "source");
 	convert = gst_element_factory_make ("videoconvert", "convert");
-    encoder = gst_element_factory_make ("mpph264enc", "encoder");
-    payloader = gst_element_factory_make ("rtph264pay", "payloader");
+    encoder = gst_element_factory_make ("mpph265enc", "encoder");
+    payloader = gst_element_factory_make ("rtph265pay", "payloader");
   	sink = gst_element_factory_make ("udpsink", "sink");
 
 	GstElement *pipeline = gst_pipeline_new ("test-pipeline");
@@ -226,6 +226,7 @@ int main(int argc, char *argv[]) {
 	gst_element_link_many(source, convert, encoder, payloader, sink, NULL);
 
 	gst_element_set_state (pipeline, GST_STATE_PLAYING);
+	//gst_element_set_state(pipeline, GST_STATE_READY);
 
 	GMainLoop *loop = g_main_loop_new(NULL, FALSE);
     StreamContext *ctx = stream_context_new();
