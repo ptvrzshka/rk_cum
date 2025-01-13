@@ -16,6 +16,14 @@ struct sockaddr_in proxy_client_address;
 static unsigned char* proxy_buffer = new unsigned char[DATA_LENGHT];
 
 
+void CloseProxy() 
+{
+    close(proxy_client);
+    std::cout << "Proxy client closed" << std::endl;
+    close(proxy_server);
+    std::cout << "Proxy server closed" << std::endl;
+}
+
 bool InitializeProxyServer(int port)
 {
     proxy_server = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
@@ -32,12 +40,14 @@ bool InitializeProxyServer(int port)
     if (bind(proxy_server, (sockaddr *)&proxy_server_address, sizeof(proxy_server_address)) < 0) 
     {
         std::cerr << "Err" << std::endl;
+        CloseProxy();
         return false;
     }
 
     if (listen(proxy_server, 1) < 0) 
     {
         std::cerr << "Err" << std::endl;
+        CloseProxy();
         return false;
     }
 
@@ -79,3 +89,4 @@ unsigned char* GetDataFromProxyServer()
 
     return proxy_buffer;
 }
+

@@ -1,4 +1,5 @@
 #include <iostream>
+#include <csignal>
 
 #include "../OpenCL/opencl.cpp"
 #include "../Ethernet/ethernet.cpp"
@@ -36,6 +37,13 @@ std::chrono::time_point<std::chrono::system_clock> startTime;
 std::chrono::time_point<std::chrono::system_clock> endTime;
 int framesCnt = 0;
 const int frameRate = 50;
+
+typedef struct {
+    GstClockTime timestamp;
+} StreamContext;
+GstElement *pipeline;
+GMainLoop *loop;
+StreamContext *ctx;
 
 
 void ReaderLoop()
@@ -130,9 +138,6 @@ void ProxyLoop()
 	}	
 }
 
-typedef struct {
-    GstClockTime timestamp;
-} StreamContext;
 
 static StreamContext *stream_context_new()
 {
@@ -182,8 +187,27 @@ void need_data(GstElement* appsrc, guint unused, StreamContext* ctx)
 	// }
 }
 
+void cleanup(int signal) 
+{
+	std::cout << "Exit..." << std::endl;
 
-int main(int argc, char *argv[]) {
+	CloseSocket();
+	CloseProxy();
+
+	gst_element_set_state(pipeline, GST_STATE_NULL);
+    g_free(ctx);
+    g_free(loop);
+
+	std::cout << "Completed" << std::endl;
+}
+
+int main(int argc, char *argv[]) 
+{
+	struct sigaction sigIntHandler;
+   	sigIntHandler.sa_handler = cleanup;
+   	sigemptyset(&sigIntHandler.sa_mask);
+   	sigIntHandler.sa_flags = 0;
+   	sigaction(SIGINT, &sigIntHandler, NULL);
 
 	InitializeSocket(new int[4] { 192, 168, 0, 1}, 50016);
 	InitializeCamera(new int[4] { 192, 168, 0, 15}, 50000);
@@ -195,22 +219,30 @@ int main(int argc, char *argv[]) {
 	std::thread processorThread(&ProcessLoop);
 	std::thread proxyThread(&ProxyLoop);
 
-	// SendData(new unsigned char[6] {0x5, 0x5c, 0x00, 0x00, 0x37, 0x1}, 6);
-	// SendData(new unsigned char[6] {0x5, 0x5c, 0x00, 0x00, 0xe, 0x80}, 6);
+	SendData(new unsigned char[6] {0x5, 0x5c, 0x00, 0x00, 0x37, 0x1}, 6);
+	SendData(new unsigned char[6] {0x5, 0x5c, 0x00, 0x00, 0xe, 0x80}, 6);
 
 	gst_init(&argc, &argv);
 
-	GstElement *source, *convert, *encoder, *payloader, *sink;
+	// GstElement *source, *filter, *convert, *encoder, *payloader, *sink;
+	GstElement *source, *convert, *encoder, *muxer, *payloader, *sink;
 
 	source = gst_element_factory_make ("appsrc", "source");
+	// filter = gst_element_factory_make("capsfilter", "filter");
 	convert = gst_element_factory_make ("videoconvert", "convert");
-    encoder = gst_element_factory_make ("mpph265enc", "encoder");
-    payloader = gst_element_factory_make ("rtph265pay", "payloader");
+    encoder = gst_element_factory_make ("mpph264enc", "encoder");
+	muxer = gst_element_factory_make ("mpegtsmux", "muxer");
+    payloader = gst_element_factory_make ("rtpmp2tpay", "payloader");
   	sink = gst_element_factory_make ("udpsink", "sink");
+	// queue = gst_element_factory_make ("queue", "queue");
 
-	GstElement *pipeline = gst_pipeline_new ("test-pipeline");
+	pipeline = gst_pipeline_new ("test-pipeline");
 
 	g_object_set(G_OBJECT(source), "stream-type", 0, "format", GST_FORMAT_TIME, NULL);
+	g_object_set(encoder, "header-mode", 1, NULL);
+	// g_object_set(payloader, "config-interval", -1, NULL);
+	// g_object_set(payloader, "source-info", true, NULL);
+	// g_object_set(payloader, "pt", 96, NULL);
 	g_object_set(sink, "host", "192.168.88.255", "port", 5004, NULL);
 
 	g_object_set (G_OBJECT (source), "caps",
@@ -222,23 +254,32 @@ int main(int argc, char *argv[]) {
 		"framerate", GST_TYPE_FRACTION, frameRate, 1,      
 		NULL), NULL);
 
-	gst_bin_add_many (GST_BIN (pipeline), source, convert, encoder, payloader, sink, NULL);
-	gst_element_link_many(source, convert, encoder, payloader, sink, NULL);
+    // g_object_set(filter, "caps", 
+	// gst_caps_new_simple(
+	// 	"video/x-raw",
+	// 	"format", G_TYPE_STRING, "GRAY8",
+	// 	"width", G_TYPE_INT, 640,                      
+	// 	"height", G_TYPE_INT, 512,                    
+	// 	"framerate", GST_TYPE_FRACTION, frameRate, 1,      
+	// 	NULL), NULL);
+
+	gst_bin_add_many (GST_BIN (pipeline), source, convert, encoder, muxer, payloader, sink, NULL);
+	gst_element_link_many(source, convert, encoder, muxer, payloader, sink, NULL);
 
 	gst_element_set_state (pipeline, GST_STATE_PLAYING);
 	//gst_element_set_state(pipeline, GST_STATE_READY);
 
-	GMainLoop *loop = g_main_loop_new(NULL, FALSE);
-    StreamContext *ctx = stream_context_new();
+	loop = g_main_loop_new(NULL, FALSE);
+    ctx = stream_context_new();
  
     g_signal_connect (source, "need-data", (GCallback) need_data, ctx);
   
     g_main_loop_run(loop);
  
-    gst_element_set_state(pipeline, GST_STATE_NULL);
+    // gst_element_set_state(pipeline, GST_STATE_NULL);
  
-    g_free(ctx);
-    g_free(loop);
+    // g_free(ctx);
+    // g_free(loop);
  
     return 0;
 }

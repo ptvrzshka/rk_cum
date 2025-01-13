@@ -102,6 +102,7 @@ void CloseSocket()
 #else
 	close(handle);
 #endif
+    std::cout << "Camera closed" << std::endl;
 }
 
 int SendData(unsigned char* message, int size)
