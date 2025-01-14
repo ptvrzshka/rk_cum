@@ -10,15 +10,11 @@
 #include <thread>
 #include <queue>
 
-// #include <opencv2/core/core.hpp>
-// #include <opencv2/highgui/highgui.hpp>
-// #include <opencv2/imgproc.hpp>
-
 #include <rk_mpi.h>
-#include <rk_type.h>
+// #include <rk_type.h>
 
 #include <gst/gst.h>
-#include <gst/app/gstappsrc.h>  
+// #include <gst/app/gstappsrc.h>  
 
 #define RTP_PORT 5004
 #define HOST "127.0.0.1"
@@ -41,8 +37,9 @@ const int frameRate = 50;
 typedef struct {
     GstClockTime timestamp;
 } StreamContext;
+GstElement *source, *convert, *encoder, *muxer, *payloader, *sink;
 GstElement *pipeline;
-GMainLoop *loop;
+gulong needDataHandlerId;
 StreamContext *ctx;
 
 
@@ -102,51 +99,6 @@ void ProcessLoop()
 	}
 }
 
-void ProxyLoop() 
-{
-	while (true)
-	{
-		unsigned char* data = GetDataFromProxyServer();
-		if (data == nullptr)
-			continue;
-		if (data[0] == 0) 
-		{
-			calib_cnt = 1;
-			continue;
-		}
-		if (data[0] == 1) 
-		{
-			global_contrast_changed(data[1]);
-			continue;
-		}
-		if (data[0] == 2) 
-		{
-			local_contrast_changed(data[1]);
-			continue;
-		}
-		if (data[0] == 3) 
-		{
-			denoise_1_changed(data[1]);
-			continue;
-		}
-		if (data[0] == 4) 
-		{
-			denoise_2_changed(data[1]);
-			continue;
-		}
-		SendData(data, 6);
-	}	
-}
-
-
-static StreamContext *stream_context_new()
-{
-    StreamContext *ctx = g_new0(StreamContext, 1);
-    ctx->timestamp = 0;
-    return ctx;
-}
-
-
 void need_data(GstElement* appsrc, guint unused, StreamContext* ctx)
 {
 
@@ -187,6 +139,75 @@ void need_data(GstElement* appsrc, guint unused, StreamContext* ctx)
 	// }
 }
 
+void StopRtpLoop() 
+{
+	std::cout << "Stoppp" << std::endl;
+	g_signal_handler_disconnect(source, needDataHandlerId);
+	gst_element_set_state (pipeline, GST_STATE_PAUSED);
+	// gst_element_set_state(pipeline, GST_STATE_NULL);
+    // g_free(ctx);
+    // g_free(loop);
+	// rtpThread->join();
+}
+
+void RunRtpLoop()
+{
+	std::cout << "Starttt" << std::endl;
+	gst_element_set_state (pipeline, GST_STATE_PLAYING);
+    needDataHandlerId = g_signal_connect (source, "need-data", (GCallback) need_data, ctx);
+}
+
+static StreamContext *stream_context_new()
+{
+    StreamContext *ctx = g_new0(StreamContext, 1);
+    ctx->timestamp = 0;
+    return ctx;
+}
+
+void ProxyLoop() 
+{
+	while (true)
+	{
+		unsigned char* data = GetDataFromProxyServer();
+		if (data == nullptr)
+			continue;
+		if (data[0] == 0) 
+		{
+			calib_cnt = 1;
+			continue;
+		}
+		if (data[0] == 1) 
+		{
+			global_contrast_changed(data[1]);
+			continue;
+		}
+		if (data[0] == 2) 
+		{
+			local_contrast_changed(data[1]);
+			continue;
+		}
+		if (data[0] == 3) 
+		{
+			denoise_1_changed(data[1]);
+			continue;
+		}
+		if (data[0] == 4) 
+		{
+			denoise_2_changed(data[1]);
+			continue;
+		}
+		if (data[0] == 6) 
+		{
+			if (data[1] == 1)
+				StopRtpLoop();
+			if (data[1] == 0)
+				RunRtpLoop();
+			continue;
+		}
+		SendData(data, 6);
+	}	
+}
+
 void cleanup(int signal) 
 {
 	std::cout << "Exit..." << std::endl;
@@ -194,9 +215,8 @@ void cleanup(int signal)
 	CloseSocket();
 	CloseProxy();
 
-	gst_element_set_state(pipeline, GST_STATE_NULL);
+	StopRtpLoop();
     g_free(ctx);
-    g_free(loop);
 
 	std::cout << "Completed" << std::endl;
 }
@@ -219,13 +239,12 @@ int main(int argc, char *argv[])
 	std::thread processorThread(&ProcessLoop);
 	std::thread proxyThread(&ProxyLoop);
 
-	SendData(new unsigned char[6] {0x5, 0x5c, 0x00, 0x00, 0x37, 0x1}, 6);
-	SendData(new unsigned char[6] {0x5, 0x5c, 0x00, 0x00, 0xe, 0x80}, 6);
+	// SendData(new unsigned char[6] {0x5, 0x5c, 0x00, 0x00, 0x37, 0x1}, 6);
+	// SendData(new unsigned char[6] {0x5, 0x5c, 0x00, 0x00, 0xe, 0x80}, 6);
 
 	gst_init(&argc, &argv);
 
 	// GstElement *source, *filter, *convert, *encoder, *payloader, *sink;
-	GstElement *source, *convert, *encoder, *muxer, *payloader, *sink;
 
 	source = gst_element_factory_make ("appsrc", "source");
 	// filter = gst_element_factory_make("capsfilter", "filter");
@@ -266,15 +285,17 @@ int main(int argc, char *argv[])
 	gst_bin_add_many (GST_BIN (pipeline), source, convert, encoder, muxer, payloader, sink, NULL);
 	gst_element_link_many(source, convert, encoder, muxer, payloader, sink, NULL);
 
-	gst_element_set_state (pipeline, GST_STATE_PLAYING);
-	//gst_element_set_state(pipeline, GST_STATE_READY);
-
-	loop = g_main_loop_new(NULL, FALSE);
     ctx = stream_context_new();
- 
-    g_signal_connect (source, "need-data", (GCallback) need_data, ctx);
-  
-    g_main_loop_run(loop);
+
+	// gst_element_set_state (pipeline, GST_STATE_PLAYING);
+    // g_signal_connect (source, "need-data", (GCallback) need_data, ctx);
+	RunRtpLoop();
+
+	while (1)
+	{
+		// std::cout << "lul" << std::endl;
+		sleep(1);
+	}
  
     // gst_element_set_state(pipeline, GST_STATE_NULL);
  
