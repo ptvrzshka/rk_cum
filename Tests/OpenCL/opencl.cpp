@@ -8,6 +8,8 @@
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc.hpp>
 
+// #include <rkisp.h>
+
 #define MAX_SOURCE_SIZE (1048576) 
 
 
@@ -326,7 +328,7 @@ static float agc_limit = 12.0; // 8 for local
 
 void exec_firts_kernel(unsigned short* inputImage, unsigned short* outputImage) 
 {
-    memset(hist, 0, memLenth);
+    memset(hist, 0, 65536 * sizeof(int));
 
     status = clEnqueueWriteBuffer(command_queue, memobj_in, CL_TRUE, 0, memLenth * sizeof(unsigned short), inputImage, 0, NULL, NULL);
     status = clEnqueueWriteBuffer(command_queue, memobj_k, CL_TRUE, 0, memLenth * sizeof(float), K, 0, NULL, NULL);
