@@ -452,14 +452,18 @@ cv::Mat kernel = (cv::Mat_<float>(3, 3) <<
         -1.0, -1.0, -1.0,
         -1.0, 9.0, -1.0,
         -1.0, -1.0, -1.0);
+static bool adaptiveFlag = false;
 void process_image(unsigned short* inputImage, unsigned char* outputImage) 
 {    
     exec_firts_kernel(inputImage, tempImage);
-    exec_separate_frequences(tempImage, lowFreq, highFreq);
-    exec_local_contrast_kernel(lowFreq, lowFreq);
-    exec_dde_kernel(highFreq, highFreq);
-    exec_summury_frequences_kernel(lowFreq, highFreq, tempImage);
-    //exec_sharpen_kernel(lowFreq, lowFreq);
+    if (adaptiveFlag) 
+    {
+        exec_separate_frequences(tempImage, lowFreq, highFreq);
+        exec_local_contrast_kernel(lowFreq, lowFreq);
+        exec_dde_kernel(highFreq, highFreq);
+        exec_summury_frequences_kernel(lowFreq, highFreq, tempImage);
+    }
+    // exec_sharpen_kernel(lowFreq, lowFreq);
     exec_bilateral_kernel(tempImage, outputImage);
 }
 
@@ -490,4 +494,9 @@ void dde_changed(unsigned char value)
 {
     ddeSig = (cl_int)value;
     status = clSetKernelArg(dde_kernel, 3, sizeof(cl_int), &ddeSig);
+}
+
+void adaptive_changed(unsigned char value) 
+{
+    adaptiveFlag = (bool)value;
 }

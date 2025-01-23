@@ -212,6 +212,11 @@ void ProxyLoop()
 			dde_changed(data[1]);
 			continue;
 		}
+		if (data[0] == 8) 
+		{
+			adaptive_changed(data[1]);
+			continue;
+		}
 		SendData(data, 6);
 	}	
 }

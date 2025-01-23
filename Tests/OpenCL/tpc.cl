@@ -143,10 +143,10 @@ __kernel void local_contrast(__global int* inputImage,
     int x = index / 640;
     int y = index % 640;
     float x_max = 0.0; float x_min = 65535.0;
-    float meanFrame = 0.0; float stdFrame = 0.0;
+    float meanFrame = 0.0; float stdFrame = 0.0; float meanFrame4 = 0.0; float meanFrame8 = 0.0; float stdFrame4 = 0.0; float stdFrame8 = 0.0;
     int dim = 25; int step = 4;
     int dim2 = dim * dim / step; 
-    float cnt = 0.0;
+    float cnt = 0.0; float cnt4 = 0.0; float cnt8 = 0.0;
     for (int i = (-dim / 2); i < dim / 2 + 1; i+=step)
     {
         for (int j = (-dim / 2); j < dim / 2 + 1; j+=step)
@@ -158,15 +158,50 @@ __kernel void local_contrast(__global int* inputImage,
             if (y + j > 639)
                 index_y = y - j;
             int index_new = index_x * 640 + index_y;
+
             float elem = inputImage[index_new];
+
             cnt += 1.0;
             float newMean = meanFrame + (elem - meanFrame) / cnt;
             stdFrame += ((elem - meanFrame) * (elem - newMean));
             meanFrame = newMean; 
+
+            if (i >= -4 && i <= 4 && j >= -4 && j <= 4) 
+            {
+                cnt4 += 1.0;
+                float newMean4 = meanFrame4 + (elem - meanFrame4) / cnt4;
+                stdFrame4 += ((elem - meanFrame4) * (elem - newMean4));
+                meanFrame4 = newMean4; 
+            }
+
+            if (i >= -8 && i <= 8 && j >= -8 && j <= 8) 
+            {
+                cnt8 += 1.0;
+                float newMean8 = meanFrame8 + (elem - meanFrame8) / cnt8;
+                stdFrame8 += ((elem - meanFrame8) * (elem - newMean8));
+                meanFrame8 = newMean8; 
+            }
+
         }
     }
 
     stdFrame = sqrt(stdFrame / (cnt - 1));
+    stdFrame4 = sqrt(stdFrame4 / (cnt4 - 1));
+    stdFrame8 = sqrt(stdFrame8 / (cnt8 - 1));
+
+    float t = 1024.0;
+    if (stdFrame >= t && stdFrame < t * 2) 
+    {
+        meanFrame = meanFrame8;
+        stdFrame = stdFrame8;
+    }
+    if (stdFrame >= t * 2) 
+    {
+        meanFrame = meanFrame4;
+        stdFrame = stdFrame4;
+    }
+    // if (stdFrame >= t * 3)
+    //     meanFrame = inputImage[index];
 
     meansNew[index] = meanFrame;
     stdsNew[index] = stdFrame;
@@ -178,7 +213,13 @@ __kernel void local_contrast(__global int* inputImage,
         k = limit;
     // if (k <= 1.0)
     //     k = 1.0;
+
     int contrastValue = (inputImage[index] - meanFrame) * k + meanFrame;  
+
+    if (contrastValue < 0)
+        contrastValue = 0;
+    if (contrastValue > 65535)
+        contrastValue = 65535;
 
     outputImage[index] = convert_ushort_sat(contrastValue);
 }
