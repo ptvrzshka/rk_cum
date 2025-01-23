@@ -62,18 +62,21 @@ __kernel void calibration_and_agc(__global unsigned short* inputImage,
                                  __global int* statsPrev, __global int* statsCurrent,
                                  int div,
                                  float contrast, __global int* hist,
-                                 __global unsigned short* outputImage)
+                                 __global int* outputImage)
 {
     int index = get_global_id(0);
 
     // Calib 
     int value = (int)((((int)inputImage[index] - Fs[index]) * K[index]) + 16384);
 
+    int x = index / 640;
+    int y = index % 640 - 1;    
+    int index_1 = x * 640 + y;
     // Defect swap
-    if (K[index] < 0.0001) 
+    if (K[index_1] < 0.0001) 
     {
         float s = 0;
-        int defect_index = defects_cnt[index] * 14;
+        int defect_index = defects_cnt[index_1] * 14;
         for (int i = defect_index; i < defect_index + 14; ++i) 
             s += (float)inputImage[i] / 14;
         value = (int)s;
@@ -88,7 +91,7 @@ __kernel void calibration_and_agc(__global unsigned short* inputImage,
     outputImage[index] = convert_ushort_sat(contrastValue);
 }
 
-__kernel void separate_frequences(__global unsigned short* inputImage, 
+__kernel void separate_frequences(__global int* inputImage, 
                                 __global int* lowFreqImage, __global int* highFreqImage)
 {
     int index = get_global_id(0);  
@@ -110,11 +113,23 @@ __kernel void separate_frequences(__global unsigned short* inputImage,
     int i8 = (x + 1) * 640 + y;
     int i9 = (x + 1) * 640 + (y + 1);
 
-    int m1 = median3(inputImage[i1], inputImage[i2], inputImage[i3]);
-    int m2 = median3(inputImage[i4], value, inputImage[i6]);
-    int m3 = median3(inputImage[i7], inputImage[i8], inputImage[i9]);
-    lowFreqImage[index] = median3(m1, m2, m3);
-    
+    // int m1 = median3(inputImage[i1], inputImage[i2], inputImage[i3]);
+    // int m2 = median3(inputImage[i4], value, inputImage[i6]);
+    // int m3 = median3(inputImage[i7], inputImage[i8], inputImage[i9]);
+    // lowFreqImage[index] = median3(m1, m2, m3);
+
+    int min1 = min(min(inputImage[i1], inputImage[i2]), inputImage[i3]);
+    int min2 = min(min(inputImage[i4], value), inputImage[i6]);
+    int min3 = min(min(inputImage[i7], inputImage[i8]), inputImage[i9]);
+    int min4 = min(min(min1, min2), min3);
+
+    int max1 = max(max(inputImage[i1], inputImage[i2]), inputImage[i3]);
+    int max2 = max(max(inputImage[i4], value), inputImage[i6]);
+    int max3 = max(max(inputImage[i7], inputImage[i8]), inputImage[i9]);
+    int max4 = max(max(max1, max2), max3);
+
+    lowFreqImage[index] = min4 / 2 + max4 / 2;
+
     // Get HF
     highFreqImage[index] = value - lowFreqImage[index];
 }
@@ -168,12 +183,16 @@ __kernel void local_contrast(__global int* inputImage,
     outputImage[index] = convert_ushort_sat(contrastValue);
 }
  
-__kernel void summary_frequences(__global int* lowFreqImage, __global int* highFreqImage, __global unsigned char* outputImage) 
+__kernel void summary_frequences(__global int* lowFreqImage, __global int* highFreqImage, __global int* outputImage) 
 {
     int index = get_global_id(0);  
-    // int value = ((float)lowFreqImage[index] + (float)highFreqImage[index] * 4) / 256;
-    int value = lowFreqImage[index] / 256;
-    outputImage[index] = convert_uchar_sat(value);
+    int value = ((float)lowFreqImage[index] + (float)highFreqImage[index]);
+    if (value < 0)
+        value = 0;
+    if (value > 65535)
+        value = 65535;
+    // int value = lowFreqImage[index] / 256;
+    outputImage[index] = convert_ushort_sat(value);
 }
 
 __kernel void sharpen(__global int* inputImage, __global int* outputImage) 
@@ -183,10 +202,52 @@ __kernel void sharpen(__global int* inputImage, __global int* outputImage)
     int x = index / 640;
     int y = index % 640;
 
+    // outputImage[index] = inputImage[index];
+
     if (x < 1 || y < 1 || x > 510 || x > 638)
         outputImage[index] = inputImage[index];
     else
+        // outputImage[index] = inputImage[index] * 9 - inputImage[(x - 1) * 640 + y] - inputImage[(x + 1) * 640 + y] - inputImage[x * 640 + y + 1] - inputImage[x * 640 + y - 1] - inputImage[(x - 1) * 640 + (y - 1)] - inputImage[(x - 1) * 640 + (y + 1)] - inputImage[(x + 1) * 640 + (y - 1)] - inputImage[(x + 1) * 640 + (y + 1)];
         outputImage[index] = inputImage[index] * 5 - inputImage[(x - 1) * 640 + y] - inputImage[(x + 1) * 640 + y] - inputImage[x * 640 + y + 1] - inputImage[x * 640 + y - 1];
+}
+
+__kernel void dde(__global int* inputImage, float hs, __global int* hs_new, int k, int div, __global int* outputImage) 
+{
+    int index = get_global_id(0);
+
+    float value = inputImage[index]; 
+
+    int x = index / 640;
+    int y = index % 640;    
+
+    int h = 0;
+    for (int i = -1; i < 2; ++i) 
+    {
+        for (int j = -1; j < 2; ++j) 
+        {
+            h += abs_diff(inputImage[(x + i) * 640 + (y + j)], value);
+        }
+    }
+    h = h / 9;
+    atomic_add(&hs_new[0], h / div);
+
+    int m = 3;
+    float elem = 65535.0;
+    if (value < - hs * m || value > hs * m) 
+    {
+        elem = 65536 / (1 + exp(-k * value / 65536)) - 32768;
+    }
+    else 
+    {
+        float koef = (65536 / (1 + exp(-k * hs * m / 65536)) - 32768) / pown(hs * m + 1, 2);
+        if (value < 0)
+            elem = -koef * pown(value, 2);
+        else
+            elem = koef * pown(value, 2);
+    }
+
+    outputImage[index] = elem;
+
 }
 
 __kernel void bilateral_filter(__global int* inputImage, 
@@ -195,35 +256,37 @@ __kernel void bilateral_filter(__global int* inputImage,
 {
     int index = get_global_id(0);
 
-    int x = index / 640;
-    int y = index % 640;
+    // int x = index / 640;
+    // int y = index % 640;
 
-    float sigma_s_2 = 2 * pown(sigma_s, 2);
-    float sigma_r_2 = 2 * pown(sigma_r, 2);
+    // float sigma_s_2 = 2 * pown(sigma_s, 2);
+    // float sigma_r_2 = 2 * pown(sigma_r, 2);
 
-    int dim = 7;
-    float s1 = 0.0; float s2 = 0.0;
-    float currentElem = inputImage[index] / 256;
-    for (int i = (-dim / 2); i < dim / 2 + 1; ++i)
-    {
-        for (int j = (-dim / 2); j < dim / 2 + 1; ++j)
-        {
-            int index_x = abs(x + i);
-            int index_y = abs(y + j);
-            if (x + i > 511)
-                index_x = x - i;
-            if (y + j > 640)
-                index_y = y - j;
-            float elem = inputImage[index_x * 640 + index_y] / 256;
-            // float w_s = exp(-((pown((float)(x - index_x), 2) + pown((float)(y - index_y), 2)) / sigma_s_2));
-            // float w_r = exp(-(pown(currentElem - elem, 2) / sigma_r_2));
-            float w = exp(-((pown((float)(x - index_x), 2) + pown((float)(y - index_y), 2)) / sigma_s_2) -(pown(currentElem - elem, 2) / sigma_r_2));
-            // float w_s = exp(-1.0);
-            // float w_r = exp(1.0);
-            s1 += w * elem;
-            s2 += w;
-        }
-    }
+    // int dim = 7;
+    // float s1 = 0.0; float s2 = 0.0;
+    // float currentElem = inputImage[index] / 256;
+    // for (int i = (-dim / 2); i < dim / 2 + 1; ++i)
+    // {
+    //     for (int j = (-dim / 2); j < dim / 2 + 1; ++j)
+    //     {
+    //         int index_x = abs(x + i);
+    //         int index_y = abs(y + j);
+    //         if (x + i > 511)
+    //             index_x = x - i;
+    //         if (y + j > 640)
+    //             index_y = y - j;
+    //         float elem = inputImage[index_x * 640 + index_y] / 256;
+    //         // float w_s = exp(-((pown((float)(x - index_x), 2) + pown((float)(y - index_y), 2)) / sigma_s_2));
+    //         // float w_r = exp(-(pown(currentElem - elem, 2) / sigma_r_2));
+    //         float w = exp(-((pown((float)(x - index_x), 2) + pown((float)(y - index_y), 2)) / sigma_s_2) -(pown(currentElem - elem, 2) / sigma_r_2));
+    //         // float w_s = exp(-1.0);
+    //         // float w_r = exp(1.0);
+    //         s1 += w * elem;
+    //         s2 += w;
+    //     }
+    // }
 
-    outputImage[index] = convert_uchar_sat(s1 / s2);
+    // outputImage[index] = convert_uchar_sat(s1 / s2);
+
+    outputImage[index] = convert_uchar_sat(inputImage[index] / 256);
 }

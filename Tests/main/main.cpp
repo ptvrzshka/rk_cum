@@ -60,6 +60,7 @@ void ReaderLoop()
 }
 
 int calib_cnt = 1;
+// cv::VideoWriter video = cv::VideoWriter("asas41.avi", cv::VideoWriter::fourcc('X', 'V', 'I', 'D'), 50.0, cv::Size(640, 512), false);
 void ProcessLoop() 
 {
 	while (!stop_flag)
@@ -87,6 +88,8 @@ void ProcessLoop()
 		}
 		process_image(frame, frameOut);
 		procQueue.push(frameOut);
+
+		// video.write(cv::Mat(512, 640, CV_8UC1, frameOut));
 
 		framesCnt += 1;
 		if (framesCnt == 30)
@@ -171,7 +174,7 @@ void ProxyLoop()
 		unsigned char* data = GetDataFromProxyServer();
 		if (data == nullptr)
 			continue;
-		if (data[0] == 0) 
+		if (data[0] == 0xff) 
 		{
 			calib_cnt = 1;
 			continue;
@@ -202,6 +205,11 @@ void ProxyLoop()
 				StopRtpLoop();
 			if (data[1] == 0)
 				RunRtpLoop();
+			continue;
+		}
+		if (data[0] == 7) 
+		{
+			dde_changed(data[1]);
 			continue;
 		}
 		SendData(data, 6);
@@ -239,8 +247,8 @@ int main(int argc, char *argv[])
 	std::thread processorThread(&ProcessLoop);
 	std::thread proxyThread(&ProxyLoop);
 
-	// SendData(new unsigned char[6] {0x5, 0x5c, 0x00, 0x00, 0x37, 0x1}, 6);
-	// SendData(new unsigned char[6] {0x5, 0x5c, 0x00, 0x00, 0xe, 0x80}, 6);
+	SendData(new unsigned char[6] {0x5, 0x5c, 0x00, 0x00, 0x37, 0x1}, 6);
+	SendData(new unsigned char[6] {0x5, 0x5c, 0x00, 0x00, 0xe, 0x80}, 6);
 
 	gst_init(&argc, &argv);
 
